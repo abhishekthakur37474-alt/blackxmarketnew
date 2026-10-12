@@ -1,22 +1,4 @@
-(function () {
-  var cfg = window.BXM_FIREBASE_CONFIG || {};
-  window.BXM_FIREBASE_READY = false;
-  window.BXM_FB = null;
-
-  if (!cfg.apiKey || String(cfg.apiKey).indexOf('REPLACE') === 0) {
-    console.warn('[BLACK X MARKET] Firebase apiKey is not configured. Edit includes/config.php and set the real Firebase Web API key.');
-    return;
-  }
-
-  try {
-    firebase.initializeApp(cfg);
-    window.BXM_FB = {
-      app: firebase.app(),
-      auth: firebase.auth(),
-      db: firebase.database()
-    };
-    window.BXM_FIREBASE_READY = true;
-  } catch (err) {
-    console.error('[BLACK X MARKET] Firebase init failed:', err);
-  }
-})();
+// Firebase has been removed from this project.
+// Authentication and data are now handled server-side with PHP + MySQL
+// (see includes/db.php, includes/schema.sql and the api/ directory).
+// This file is intentionally a no-op and is no longer loaded.

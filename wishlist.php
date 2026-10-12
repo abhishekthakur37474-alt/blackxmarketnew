@@ -17,11 +17,16 @@ require_once __DIR__ . '/includes/header.php';
   </div>
 </section>
 <?php
-$inlineScript = <<<'HTML'
+$wishlistProducts = [];
+foreach (bxm_products() as $wProduct) {
+    $wishlistProducts[$wProduct['id']] = $wProduct;
+}
+$encodedWishProducts = json_encode($wishlistProducts, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$inlineScript = <<<HTML
 <script>
 (function () {
-  var products = {};
-  var loaded = false;
+  var products = {$encodedWishProducts} || {};
+  var loaded = true;
 
   function render() {
     if (!loaded) return;
@@ -41,6 +46,7 @@ $inlineScript = <<<'HTML'
   }
 
   document.addEventListener('bxm:wishlist', render);
+  document.addEventListener('DOMContentLoaded', render);
 
   document.addEventListener('click', function (e) {
     var move = e.target.closest('[data-move-cart]');
@@ -50,18 +56,7 @@ $inlineScript = <<<'HTML'
     }
   });
 
-  window.BXM.onAuth(function (user) {
-    if (!window.BXM.firebaseReady || !user) return;
-    window.BXM.db.ref('products').once('value').then(function (snap) {
-      snap.forEach(function (c) {
-        var p = c.val() || {};
-        p.id = c.key;
-        products[c.key] = p;
-      });
-      loaded = true;
-      render();
-    });
-  });
+  render();
 })();
 </script>
 HTML;

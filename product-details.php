@@ -3,6 +3,26 @@ $productId = isset($_GET['id']) ? preg_replace('/[^A-Za-z0-9_-]/', '', $_GET['id
 $pageTitle = 'Product Details';
 $pageDescription = 'View product details, pricing and delivery information.';
 require_once __DIR__ . '/includes/header.php';
+
+$product = $productId !== '' ? bxm_product($productId) : null;
+$notFound = !$product || !in_array($product['status'], ['active', 'out_of_stock'], true);
+$productReviews = $product ? bxm_reviews('approved', $productId) : [];
+$related = [];
+if ($product) {
+    foreach (bxm_products('active') as $candidate) {
+        if ($candidate['id'] !== $productId && $candidate['category'] === $product['category']) {
+            $related[] = $candidate;
+        }
+    }
+    $related = array_slice($related, 0, 4);
+}
+$detailData = [
+    'hasId' => $productId !== '',
+    'notFound' => $notFound,
+    'product' => $product,
+    'reviews' => $productReviews,
+    'related' => $related,
+];
 ?>
 <div class="container" id="bxmConfigNotice"></div>
 
@@ -30,10 +50,12 @@ require_once __DIR__ . '/includes/header.php';
   </div>
 </section>
 <?php
-$inlineScript = '<script>window.BXM_PRODUCT_ID = ' . json_encode($productId) . ';</script>' . <<<'HTML'
+$encodedDetail = json_encode($detailData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$inlineScript = '<script>window.BXM_DETAIL = ' . $encodedDetail . ';</script>' . <<<'HTML'
 <script>
 (function () {
-  var productId = window.BXM_PRODUCT_ID || '';
+  var detail = window.BXM_DETAIL || {};
+  var productId = (detail.product && detail.product.id) || '';
   var current = null;
 
   function stars(rating) {
@@ -108,50 +130,26 @@ $inlineScript = '<script>window.BXM_PRODUCT_ID = ' . json_encode($productId) . '
     }
   }
 
-  window.BXM.onAuth(function () {
-    if (!window.BXM.firebaseReady) return;
-    if (!productId) {
-      document.getElementById('productDetail').innerHTML = '<div class="bxm-state-box text-center"><i class="bi bi-box bxm-state-icon"></i><h5>Product not found</h5><p class="text-secondary mb-3">The product you are looking for does not exist.</p><a href="products.php" class="bxm-btn bxm-btn-primary">Browse Products</a></div>';
-      return;
-    }
-    window.BXM.db.ref('products/' + productId).once('value').then(function (snap) {
-      var product = snap.val();
-      if (!product) {
-        document.getElementById('productDetail').innerHTML = '<div class="bxm-state-box text-center"><i class="bi bi-box bxm-state-icon"></i><h5>Product not found</h5><p class="text-secondary mb-3">The product you are looking for does not exist.</p><a href="products.php" class="bxm-btn bxm-btn-primary">Browse Products</a></div>';
-        return;
-      }
-      if (product.status && product.status !== 'active' && product.status !== 'out_of_stock') {
-        document.getElementById('productDetail').innerHTML = '<div class="bxm-state-box text-center"><i class="bi bi-box bxm-state-icon"></i><h5>Product not found</h5><p class="text-secondary mb-3">This product is no longer available.</p><a href="products.php" class="bxm-btn bxm-btn-primary">Browse Products</a></div>';
-        return;
-      }
-      product.id = productId;
-      window.BXM.db.ref('reviews').once('value').then(function (rsnap) {
-        var reviews = [];
-        rsnap.forEach(function (c) {
-          var r = c.val() || {};
-          if (r.productId === productId && r.status === 'approved') reviews.push(r);
-        });
-        render(product, reviews);
-      });
-      window.BXM.db.ref('products').once('value').then(function (all) {
-        var related = [];
-        all.forEach(function (c) {
-          var p = c.val() || {};
-          if (c.key !== productId && p.status === 'active' && p.category === product.category) {
-            p.id = c.key;
-            related.push(p);
-          }
-        });
-        related = related.slice(0, 4);
-        if (related.length) {
-          document.getElementById('relatedProducts').innerHTML = related.map(function (p) {
-            return '<div class="col-6 col-md-4 col-lg-3">' + window.BXM.productCardHTML(p) + '</div>';
-          }).join('');
-          document.getElementById('relatedSection').hidden = false;
-        }
-      });
-    });
-  });
+  function notFound(message) {
+    document.getElementById('productDetail').innerHTML = '<div class="bxm-state-box text-center"><i class="bi bi-box bxm-state-icon"></i><h5>Product not found</h5><p class="text-secondary mb-3">' + message + '</p><a href="products.php" class="bxm-btn bxm-btn-primary">Browse Products</a></div>';
+  }
+
+  if (!detail.hasId) {
+    notFound('The product you are looking for does not exist.');
+    return;
+  }
+  if (detail.notFound || !detail.product) {
+    notFound('This product is no longer available.');
+    return;
+  }
+  render(detail.product, detail.reviews || []);
+  var related = detail.related || [];
+  if (related.length) {
+    document.getElementById('relatedProducts').innerHTML = related.map(function (p) {
+      return '<div class="col-6 col-md-4 col-lg-3">' + window.BXM.productCardHTML(p) + '</div>';
+    }).join('');
+    document.getElementById('relatedSection').hidden = false;
+  }
 })();
 </script>
 HTML;

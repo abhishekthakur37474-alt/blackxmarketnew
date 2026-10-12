@@ -26,37 +26,15 @@
 
   function ready(cb) {
     function run() {
-      if (!window.BXM || typeof window.BXM.onAuth !== 'function') {
+      if (!window.BXM || typeof window.BXM.apiFetch !== 'function') {
         setTimeout(run, 40);
         return;
       }
-      window.BXM.onAuth(function (user) {
-        if (!window.BXM.firebaseReady) {
-          deny('Firebase is not configured yet. Set your Firebase Web API key in includes/config.php.');
-          return;
-        }
-        if (window.BXM.isAdmin || phpIsAdmin()) {
-          cb(user);
-          return;
-        }
-        if (!user) {
-          window.location.replace(window.BXM.url('admin/login.php'));
-          return;
-        }
-        var n = 0;
-        var t = setInterval(function () {
-          n += 1;
-          if (window.BXM.isAdmin || phpIsAdmin()) {
-            clearInterval(t);
-            cb(user);
-            return;
-          }
-          if (n > 40) {
-            clearInterval(t);
-            window.location.replace(window.BXM.url('admin/login.php'));
-          }
-        }, 50);
-      });
+      if (window.BXM.isAdmin || phpIsAdmin()) {
+        cb(window.BXM.user);
+        return;
+      }
+      window.location.replace(window.BXM.url('admin/login.php'));
     }
     run();
   }

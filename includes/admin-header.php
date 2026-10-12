@@ -45,8 +45,7 @@ function bxm_admin_nav_render($adminNav, $adminActive)
 <link href="<?= bxm_url('assets/css/style.css') ?>" rel="stylesheet">
 <link href="<?= bxm_url('assets/css/admin.css') ?>" rel="stylesheet">
 <script>
-window.BXM_FIREBASE_CONFIG = <?= json_encode(bxm_firebase()) ?>;
-window.BXM_APP = { base: <?= json_encode(BXM_BASE) ?>, currency: <?= json_encode(bxm_site('currency')) ?>, csrf: <?= json_encode(bxm_csrf_token()) ?>, firebaseReady: false, role: <?= json_encode($currentUser['role'] ?? '') ?> };
+window.BXM_APP = { base: <?= json_encode(BXM_BASE) ?>, currency: <?= json_encode(bxm_site('currency')) ?>, csrf: <?= json_encode(bxm_csrf_token()) ?>, role: <?= json_encode($currentUser['role'] ?? '') ?> };
 </script>
 </head>
 <body class="bxm-admin-body">

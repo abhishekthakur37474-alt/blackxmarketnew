@@ -4,6 +4,7 @@ $pageTitle = 'My Orders';
 $pageDescription = 'Track your digital product orders.';
 $noIndex = true;
 require_once __DIR__ . '/includes/header.php';
+$orderList = bxm_orders_by_user($currentUser['uid']);
 ?>
 <div class="container" id="bxmConfigNotice"></div>
 
@@ -18,17 +19,15 @@ require_once __DIR__ . '/includes/header.php';
         <button class="bxm-btn bxm-btn-outline bxm-btn-sm" data-filter="rejected">Rejected</button>
       </div>
     </div>
-    <div class="row g-3" id="ordersGrid">
-      <div class="col-md-6"><div class="bxm-skeleton" style="height:170px"></div></div>
-      <div class="col-md-6"><div class="bxm-skeleton" style="height:170px"></div></div>
-    </div>
+    <div class="row g-3" id="ordersGrid"></div>
   </div>
 </section>
 <?php
-$inlineScript = <<<'HTML'
+$encodedOrders = json_encode($orderList, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$inlineScript = <<<HTML
 <script>
 (function () {
-  var orders = [];
+  var orders = {$encodedOrders} || [];
   var filter = 'all';
 
   function simplified(status) {
@@ -80,23 +79,7 @@ $inlineScript = <<<'HTML'
     render();
   });
 
-  window.BXM.onAuth(function (user) {
-    if (!window.BXM.firebaseReady || !user) return;
-    window.BXM.db.ref('users/' + user.uid + '/orders').once('value').then(function (snap) {
-      var ids = [];
-      snap.forEach(function (c) { ids.push(c.key); });
-      if (!ids.length) { render(); return; }
-      Promise.all(ids.map(function (id) {
-        return window.BXM.db.ref('orders/' + id).once('value').then(function (s) {
-          var o = s.val();
-          if (o) { o.orderId = o.orderId || id; orders.push(o); }
-        }).catch(function () {});
-      })).then(function () {
-        orders.sort(function (a, b) { return (b.createdAt || 0) - (a.createdAt || 0); });
-        render();
-      });
-    });
-  });
+  render();
 })();
 </script>
 HTML;

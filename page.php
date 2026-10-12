@@ -7,7 +7,7 @@ $pages = [
     ],
     'privacy' => [
         'title' => 'Privacy Policy',
-        'body' => "BLACK X MARKET respects your privacy.\n\n1. We collect only the information required to operate your account and process orders, such as name, email and order history.\n2. Authentication is handled by Firebase Authentication. Payment screenshots are private order information.\n3. We do not sell your personal data.\n4. Delivery details are shown only to the purchasing user and authorized administrators.\n5. You may request account support through the Customer Support page.",
+        'body' => "BLACK X MARKET respects your privacy.\n\n1. We collect only the information required to operate your account and process orders, such as name, email and order history.\n2. Authentication is handled securely on our own servers with encrypted passwords. Payment screenshots are private order information.\n3. We do not sell your personal data.\n4. Delivery details are shown only to the purchasing user and authorized administrators.\n5. You may request account support through the Customer Support page.",
     ],
     'refund' => [
         'title' => 'Refund Policy',

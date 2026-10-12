@@ -69,39 +69,17 @@ $inlineScript = <<<HTML
     if (!name || !email || !pass) { window.BXM.toast('Please fill in all fields', 'warning'); return; }
     if (pass.length < 6) { window.BXM.toast('Password must be at least 6 characters', 'warning'); return; }
     if (pass !== confirm) { window.BXM.toast('Passwords do not match', 'warning'); return; }
-    if (!window.BXM.firebaseReady) { window.BXM.toast('Firebase is not configured yet', 'danger'); return; }
 
     btn.disabled = true;
-    window.BXM.auth.createUserWithEmailAndPassword(email, pass).then(function (cred) {
-      var user = cred.user;
-      return user.updateProfile({ displayName: name }).catch(function () {}).then(function () {
-        return window.BXM.db.ref('users/' + user.uid).set({
-          name: name,
-          email: email,
-          phone: '',
-          role: 'user',
-          status: 'active',
-          createdAt: Date.now()
-        }).catch(function () {});
-      }).then(function () {
-        return user.getIdToken();
-      });
-    }).then(function (token) {
-      return fetch(window.BXM.api('session.php'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': (window.BXM_APP && window.BXM_APP.csrf) || '' },
-        body: JSON.stringify({ idToken: token })
-      }).then(function (r) { return r.json().catch(function () { return {}; }); }).catch(function () { return {}; });
+    window.BXM.apiFetch('auth.php', {
+      method: 'POST',
+      body: { action: 'register', name: name, email: email, password: pass }
     }).then(function () {
       window.BXM.toast('Account created successfully', 'success');
       setTimeout(function () { window.location.href = target(); }, 600);
     }).catch(function (err) {
       btn.disabled = false;
-      var msg = err.message || 'Registration failed';
-      if (err.code === 'auth/email-already-in-use') msg = 'This email is already registered. Please login.';
-      else if (err.code === 'auth/invalid-email') msg = 'Please enter a valid email address.';
-      else if (err.code === 'auth/weak-password') msg = 'Password must be at least 6 characters.';
-      window.BXM.toast(msg, 'danger');
+      window.BXM.toast(err.message || 'Registration failed', 'danger');
     });
   });
 })();

@@ -3,6 +3,20 @@ $pageTitle = 'Home';
 $pageDescription = 'Discover premium digital gaming products at BLACK X MARKET. Verified products, secure checkout and instant digital delivery.';
 $activePage = 'home';
 require_once __DIR__ . '/includes/header.php';
+
+$activeProducts = bxm_products('active');
+$featuredProducts = array_slice($activeProducts, 0, 8);
+$productCount = count($activeProducts);
+$deliveredCount = (int) bxm_val("SELECT COUNT(*) FROM orders WHERE status IN ('approved','completed')");
+$slides = bxm_carousels('active');
+$homeReviews = bxm_reviews('approved', null, 3);
+$homeData = [
+    'products' => $featuredProducts,
+    'carousel' => $slides,
+    'reviews' => $homeReviews,
+    'productCount' => $productCount,
+    'deliveredCount' => $deliveredCount,
+];
 ?>
 <div class="container" id="bxmConfigNotice"></div>
 
@@ -22,11 +36,11 @@ require_once __DIR__ . '/includes/header.php';
         <div class="bxm-card p-4">
           <div class="row g-3 text-center">
             <div class="col-6">
-              <div class="bxm-stat-value" id="heroProducts">0+</div>
+              <div class="bxm-stat-value" id="heroProducts"><?= (int) $productCount ?>+</div>
               <div class="bxm-stat-label">Products</div>
             </div>
             <div class="col-6">
-              <div class="bxm-stat-value" id="heroOrders">0+</div>
+              <div class="bxm-stat-value" id="heroOrders"><?= (int) $deliveredCount ?>+</div>
               <div class="bxm-stat-label">Delivered</div>
             </div>
           </div>
@@ -42,7 +56,8 @@ require_once __DIR__ . '/includes/header.php';
   </div>
 </section>
 
-<section class="bxm-section-sm" id="carouselSection" hidden>
+<?php if (!empty($slides)): ?>
+<section class="bxm-section-sm" id="carouselSection">
   <div class="container">
     <div class="d-flex justify-content-between align-items-end mb-3">
       <div>
@@ -51,7 +66,20 @@ require_once __DIR__ . '/includes/header.php';
       </div>
     </div>
     <div id="homeCarousel" class="carousel slide" data-bs-ride="carousel">
-      <div class="carousel-inner" id="carouselInner"></div>
+      <div class="carousel-inner" id="carouselInner">
+        <?php foreach ($slides as $index => $slide): ?>
+        <div class="carousel-item<?= $index === 0 ? ' active' : '' ?>">
+          <div class="bxm-carousel-slide">
+            <img src="<?= bxm_e($slide['imageUrl']) ?>" alt="<?= bxm_e($slide['title'] ?: 'Featured') ?>">
+            <div class="bxm-carousel-caption">
+              <h3 class="mb-1"><?= bxm_e($slide['title']) ?></h3>
+              <?php if ($slide['description'] !== ''): ?><p class="text-secondary mb-3"><?= bxm_e($slide['description']) ?></p><?php endif; ?>
+              <?php if ($slide['link'] !== ''): ?><a href="<?= bxm_e($slide['link']) ?>" class="bxm-btn bxm-btn-primary"><?= bxm_e($slide['buttonText'] ?: 'Explore Now') ?></a><?php endif; ?>
+            </div>
+          </div>
+        </div>
+        <?php endforeach; ?>
+      </div>
       <div class="d-flex gap-2 mt-3">
         <button class="bxm-icon-btn" type="button" data-bs-target="#homeCarousel" data-bs-slide="prev"><i class="bi bi-arrow-left"></i></button>
         <button class="bxm-icon-btn" type="button" data-bs-target="#homeCarousel" data-bs-slide="next"><i class="bi bi-arrow-right"></i></button>
@@ -59,6 +87,7 @@ require_once __DIR__ . '/includes/header.php';
     </div>
   </div>
 </section>
+<?php endif; ?>
 
 <section class="bxm-section">
   <div class="container">
@@ -69,11 +98,7 @@ require_once __DIR__ . '/includes/header.php';
       </div>
       <a href="products.php" class="bxm-btn bxm-btn-outline bxm-btn-sm d-none d-sm-inline-flex">View All</a>
     </div>
-    <div class="row g-3" id="featuredProducts">
-      <?php for ($i = 0; $i < 4; $i++): ?>
-        <div class="col-6 col-md-4 col-lg-3"><div class="bxm-skeleton" style="height:280px"></div></div>
-      <?php endfor; ?>
-    </div>
+    <div class="row g-3" id="featuredProducts"></div>
   </div>
 </section>
 
@@ -121,11 +146,7 @@ require_once __DIR__ . '/includes/header.php';
       </div>
       <a href="reviews.php" class="bxm-btn bxm-btn-outline bxm-btn-sm d-none d-sm-inline-flex">All Reviews</a>
     </div>
-    <div class="row g-3" id="homeReviews">
-      <div class="col-md-4"><div class="bxm-skeleton" style="height:150px"></div></div>
-      <div class="col-md-4"><div class="bxm-skeleton" style="height:150px"></div></div>
-      <div class="col-md-4"><div class="bxm-skeleton" style="height:150px"></div></div>
-    </div>
+    <div class="row g-3" id="homeReviews"></div>
   </div>
 </section>
 
@@ -139,9 +160,12 @@ require_once __DIR__ . '/includes/header.php';
   </div>
 </section>
 <?php
-$inlineScript = <<<'HTML'
+$encodedHome = json_encode($homeData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$inlineScript = <<<HTML
 <script>
 (function () {
+  var data = {$encodedHome};
+
   function stars(rating) {
     var out = '';
     for (var i = 1; i <= 5; i++) {
@@ -150,68 +174,24 @@ $inlineScript = <<<'HTML'
     return out;
   }
 
-  window.BXM.onAuth(function () {
-    if (!window.BXM.firebaseReady) return;
-    var db = window.BXM.db;
+  var featured = document.getElementById('featuredProducts');
+  window.BXM.renderProducts(featured, data.products || []);
+  document.getElementById('heroProducts').textContent = (data.productCount || 0) + '+';
+  document.getElementById('heroOrders').textContent = (data.deliveredCount || 0) + '+';
 
-    db.ref('products').orderByChild('createdAt').limitToLast(8).once('value').then(function (snap) {
-      var products = [];
-      snap.forEach(function (child) {
-        var p = child.val() || {};
-        p.id = child.key;
-        if (p.status !== 'inactive') products.push(p);
-      });
-      products.reverse();
-      window.BXM.renderProducts(document.getElementById('featuredProducts'), products.slice(0, 8));
-      document.getElementById('heroProducts').textContent = products.length + '+';
-    });
-
-    db.ref('products').once('value').then(function (snap) {
-      var active = 0;
-      snap.forEach(function (c) { if ((c.val() || {}).status === 'active') active++; });
-      document.getElementById('heroProducts').textContent = active + '+';
-    });
-
-    db.ref('carousels').orderByChild('order').once('value').then(function (snap) {
-      var slides = [];
-      snap.forEach(function (child) {
-        var c = child.val() || {};
-        if (c.status === 'active') slides.push(c);
-      });
-      if (!slides.length) return;
-      var inner = document.getElementById('carouselInner');
-      inner.innerHTML = slides.map(function (s, i) {
-        return '<div class="carousel-item' + (i === 0 ? ' active' : '') + '">' +
-          '<div class="bxm-carousel-slide"><img src="' + window.BXM.escapeHtml(s.imageUrl || '') + '" alt="' + window.BXM.escapeHtml(s.title || 'Featured') + '">' +
-          '<div class="bxm-carousel-caption"><h3 class="mb-1">' + window.BXM.escapeHtml(s.title || '') + '</h3>' +
-          (s.description ? '<p class="text-secondary mb-3">' + window.BXM.escapeHtml(s.description) + '</p>' : '') +
-          (s.link ? '<a href="' + window.BXM.escapeHtml(s.link) + '" class="bxm-btn bxm-btn-primary">' + window.BXM.escapeHtml(s.buttonText || 'Explore Now') + '</a>' : '') +
-          '</div></div></div>';
-      }).join('');
-      document.getElementById('carouselSection').hidden = false;
-    });
-
-    db.ref('reviews').once('value').then(function (snap) {
-      var reviews = [];
-      snap.forEach(function (child) {
-        var r = child.val() || {};
-        if (r.status === 'approved') reviews.push(r);
-      });
-      var host = document.getElementById('homeReviews');
-      reviews = reviews.slice(-3).reverse();
-      if (!reviews.length) {
-        host.innerHTML = '<div class="col-12"><div class="bxm-state-box text-center"><i class="bi bi-chat-quote bxm-state-icon"></i><p class="text-secondary mb-0">No reviews yet.</p></div></div>';
-        return;
-      }
-      host.innerHTML = reviews.map(function (r) {
-        return '<div class="col-md-4"><div class="bxm-feature-card h-100">' +
-          '<div class="mb-2">' + stars(Number(r.rating) || 0) + '</div>' +
-          '<p class="text-secondary">' + window.BXM.escapeHtml(r.comment || '') + '</p>' +
-          '<div class="small text-muted">- ' + window.BXM.escapeHtml(r.userName || 'Customer') + '</div>' +
-          '</div></div>';
-      }).join('');
-    });
-  });
+  var host = document.getElementById('homeReviews');
+  var reviews = (data.reviews || []).slice().reverse();
+  if (!reviews.length) {
+    host.innerHTML = '<div class="col-12"><div class="bxm-state-box text-center"><i class="bi bi-chat-quote bxm-state-icon"></i><p class="text-secondary mb-0">No reviews yet.</p></div></div>';
+  } else {
+    host.innerHTML = reviews.map(function (r) {
+      return '<div class="col-md-4"><div class="bxm-feature-card h-100">' +
+        '<div class="mb-2">' + stars(Number(r.rating) || 0) + '</div>' +
+        '<p class="text-secondary">' + window.BXM.escapeHtml(r.comment || '') + '</p>' +
+        '<div class="small text-muted">- ' + window.BXM.escapeHtml(r.userName || 'Customer') + '</div>' +
+        '</div></div>';
+    }).join('');
+  }
 })();
 </script>
 HTML;

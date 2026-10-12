@@ -2,6 +2,7 @@
 $adminTitle = 'Manage Carousels';
 $adminActive = 'carousels';
 require_once __DIR__ . '/../includes/admin-header.php';
+$carouselSlides = bxm_carousels();
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
   <div>
@@ -40,13 +41,15 @@ require_once __DIR__ . '/../includes/admin-header.php';
   </div>
 </div>
 <?php
-$inlineScript = <<<'HTML'
+$encodedSlides = json_encode($carouselSlides, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$inlineScript = <<<HTML
 <script>
 window.BXMAdmin.ready(function () {
-  var db = window.BXM.db;
-  var slides = [];
+  var slides = {$encodedSlides} || [];
   var editingId = null;
   var imageUrl = '';
+
+  function sortSlides() { slides.sort(function (a, b) { return window.BXM.toNumber(a.order) - window.BXM.toNumber(b.order); }); }
 
   function render() {
     var host = document.getElementById('carouselList');
@@ -66,12 +69,8 @@ window.BXMAdmin.ready(function () {
   }
 
   function load() {
-    db.ref('carousels').once('value').then(function (s) {
-      slides = [];
-      s.forEach(function (c) { var v = c.val() || {}; v.id = c.key; slides.push(v); });
-      slides.sort(function (a, b) { return window.BXM.toNumber(a.order) - window.BXM.toNumber(b.order); });
-      render();
-    });
+    sortSlides();
+    render();
   }
 
   function openModal(slide) {
@@ -107,12 +106,24 @@ window.BXMAdmin.ready(function () {
       if (s) openModal(s);
     } else if (btn.hasAttribute('data-toggle')) {
       var item = slides.filter(function (x) { return x.id === btn.getAttribute('data-toggle'); })[0];
-      db.ref('carousels/' + item.id).update({ status: item.status === 'active' ? 'inactive' : 'active' }).then(function () { window.BXM.toast('Status updated', 'success'); load(); });
+      window.BXM.apiFetch('data.php', { method: 'POST', json: { resource: 'carousel', action: 'toggle', id: item.id } })
+        .then(function (res) {
+          if (!res || !res.ok) throw new Error((res && res.error) || 'Could not update status');
+          item.status = res.status;
+          window.BXM.toast('Status updated', 'success');
+          render();
+        }).catch(function (err) { window.BXM.toast(err.message || 'Could not update status', 'danger'); });
     } else if (btn.hasAttribute('data-del')) {
       var id = btn.getAttribute('data-del');
       window.BXM.confirmDialog('Delete this carousel slide?', { confirmText: 'Delete', danger: true }).then(function (ok) {
         if (!ok) return;
-        db.ref('carousels/' + id).remove().then(function () { window.BXM.toast('Slide deleted', 'info'); load(); });
+        window.BXM.apiFetch('data.php', { method: 'POST', json: { resource: 'carousel', action: 'delete', id: id } })
+          .then(function (res) {
+            if (!res || !res.ok) throw new Error((res && res.error) || 'Could not delete slide');
+            slides = slides.filter(function (x) { return x.id !== id; });
+            window.BXM.toast('Slide deleted', 'info');
+            render();
+          }).catch(function (err) { window.BXM.toast(err.message || 'Could not delete slide', 'danger'); });
       });
     }
   });
@@ -128,23 +139,25 @@ window.BXMAdmin.ready(function () {
     imgPromise.then(function (up) {
       if (up && !up.ok) throw new Error(up.error || 'Image upload failed');
       var data = {
+        resource: 'carousel',
+        action: 'save',
         title: title,
         description: document.getElementById('cDescription').value.trim(),
         buttonText: document.getElementById('cButtonText').value.trim(),
         link: document.getElementById('cLink').value.trim(),
         order: window.BXM.toNumber(document.getElementById('cOrder').value),
-        status: document.getElementById('cStatus').value,
-        updatedAt: Date.now()
+        status: document.getElementById('cStatus').value
       };
       if (up && up.url) data.imageUrl = up.url;
-      if (!editingId) { data.createdAt = Date.now(); data.imageUrl = data.imageUrl || ''; }
-      return editingId ? db.ref('carousels/' + editingId).update(data) : db.ref('carousels').push(data);
-    }).then(function () {
+      if (editingId) { data.id = editingId; }
+      return window.BXM.apiFetch('data.php', { method: 'POST', json: data });
+    }).then(function (res) {
       window.BXM.loader(false);
       btn.disabled = false;
+      if (!res || !res.ok) throw new Error((res && res.error) || 'Could not save slide');
       bootstrap.Modal.getInstance(document.getElementById('carouselModal')).hide();
       window.BXM.toast(editingId ? 'Slide updated' : 'Slide created', 'success');
-      load();
+      window.location.reload();
     }).catch(function (err) {
       window.BXM.loader(false);
       btn.disabled = false;

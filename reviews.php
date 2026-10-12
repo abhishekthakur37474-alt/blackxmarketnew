@@ -3,6 +3,33 @@ $pageTitle = 'Reviews';
 $pageDescription = 'Read verified customer reviews of digital products at BLACK X MARKET.';
 $activePage = 'reviews';
 require_once __DIR__ . '/includes/header.php';
+
+$approvedReviews = bxm_reviews('approved');
+$reviewUser = bxm_session_user();
+$purchasedProducts = [];
+if ($reviewUser) {
+    foreach (bxm_orders_by_user($reviewUser['uid']) as $reviewOrder) {
+        if (!in_array($reviewOrder['status'], ['approved', 'completed'], true)) {
+            continue;
+        }
+        $orderItems = $reviewOrder['items'] ?? [];
+        if (is_array($orderItems) && !empty($orderItems)) {
+            foreach ($orderItems as $orderItem) {
+                $pid = $orderItem['productId'] ?? '';
+                if ($pid !== '') {
+                    $purchasedProducts[$pid] = $orderItem['title'] ?? 'Product';
+                }
+            }
+        } elseif (!empty($reviewOrder['productId'])) {
+            $purchasedProducts[$reviewOrder['productId']] = $reviewOrder['productTitle'] ?: 'Product';
+        }
+    }
+}
+$reviewsData = [
+    'reviews' => $approvedReviews,
+    'purchased' => $purchasedProducts,
+    'loggedIn' => $reviewUser !== null,
+];
 ?>
 <div class="container" id="bxmConfigNotice"></div>
 
@@ -15,11 +42,7 @@ require_once __DIR__ . '/includes/header.php';
       </div>
       <button class="bxm-btn bxm-btn-primary" id="writeReviewBtn"><i class="bi bi-pencil-square"></i> Write a Review</button>
     </div>
-    <div class="row g-3" id="reviewsGrid">
-      <div class="col-md-4"><div class="bxm-skeleton" style="height:150px"></div></div>
-      <div class="col-md-4"><div class="bxm-skeleton" style="height:150px"></div></div>
-      <div class="col-md-4"><div class="bxm-skeleton" style="height:150px"></div></div>
-    </div>
+    <div class="row g-3" id="reviewsGrid"></div>
   </div>
 </section>
 
@@ -56,11 +79,13 @@ require_once __DIR__ . '/includes/header.php';
   </div>
 </div>
 <?php
-$inlineScript = <<<'HTML'
+$encodedReviews = json_encode($reviewsData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$inlineScript = <<<HTML
 <script>
 (function () {
+  var data = {$encodedReviews} || { reviews: [], purchased: {}, loggedIn: false };
   var rating = 0;
-  var purchased = {};
+  var purchased = data.purchased || {};
   var urlProduct = new URLSearchParams(window.location.search).get('product');
 
   function stars(r) {
@@ -76,54 +101,32 @@ $inlineScript = <<<'HTML'
     });
   }
 
-  function loadReviews() {
-    window.BXM.db.ref('reviews').once('value').then(function (snap) {
-      var reviews = [];
-      snap.forEach(function (c) {
-        var r = c.val() || {};
-        if (r.status === 'approved') reviews.push(r);
-      });
-      reviews.sort(function (a, b) { return (b.createdAt || 0) - (a.createdAt || 0); });
-      var grid = document.getElementById('reviewsGrid');
-      if (!reviews.length) {
-        grid.innerHTML = '<div class="col-12"><div class="bxm-state-box text-center"><i class="bi bi-chat-quote bxm-state-icon"></i><h5>No reviews yet</h5><p class="text-secondary mb-0">Be the first to share your experience.</p></div></div>';
-        return;
-      }
-      grid.innerHTML = reviews.map(function (r) {
-        return '<div class="col-md-4"><div class="bxm-feature-card h-100">' +
-          '<div class="mb-2">' + stars(Number(r.rating) || 0) + '</div>' +
-          '<h6 class="mb-1">' + window.BXM.escapeHtml(r.productTitle || 'Product') + '</h6>' +
-          '<p class="text-secondary small">' + window.BXM.escapeHtml(r.comment || '') + '</p>' +
-          '<div class="small text-muted mt-auto">- ' + window.BXM.escapeHtml(r.userName || 'Customer') + '</div>' +
-          '</div></div>';
-      }).join('');
-    });
+  function renderReviews() {
+    var reviews = (data.reviews || []).slice().sort(function (a, b) { return (b.createdAt || 0) - (a.createdAt || 0); });
+    var grid = document.getElementById('reviewsGrid');
+    if (!reviews.length) {
+      grid.innerHTML = '<div class="col-12"><div class="bxm-state-box text-center"><i class="bi bi-chat-quote bxm-state-icon"></i><h5>No reviews yet</h5><p class="text-secondary mb-0">Be the first to share your experience.</p></div></div>';
+      return;
+    }
+    grid.innerHTML = reviews.map(function (r) {
+      return '<div class="col-md-4"><div class="bxm-feature-card h-100">' +
+        '<div class="mb-2">' + stars(Number(r.rating) || 0) + '</div>' +
+        '<h6 class="mb-1">' + window.BXM.escapeHtml(r.productTitle || 'Product') + '</h6>' +
+        '<p class="text-secondary small">' + window.BXM.escapeHtml(r.comment || '') + '</p>' +
+        '<div class="small text-muted mt-auto">- ' + window.BXM.escapeHtml(r.userName || 'Customer') + '</div>' +
+        '</div></div>';
+    }).join('');
   }
 
-  function loadPurchased(user) {
-    window.BXM.db.ref('users/' + user.uid + '/orders').once('value').then(function (snap) {
-      var ids = [];
-      snap.forEach(function (c) { ids.push(c.key); });
-      return Promise.all(ids.map(function (id) {
-        return window.BXM.db.ref('orders/' + id).once('value').then(function (s) {
-          var o = s.val();
-          if (!o || o.status !== 'approved' && o.status !== 'completed') return;
-          (o.items || []).forEach(function (it) {
-            purchased[it.productId] = it.title;
-          });
-          if (!o.items && o.productId) purchased[o.productId] = o.productTitle;
-        }).catch(function () {});
-      }));
-    }).then(function () {
-      var sel = document.getElementById('reviewProduct');
-      Object.keys(purchased).forEach(function (id) {
-        var opt = document.createElement('option');
-        opt.value = id;
-        opt.textContent = purchased[id];
-        sel.appendChild(opt);
-      });
-      if (urlProduct && purchased[urlProduct]) sel.value = urlProduct;
+  function loadPurchasedOptions() {
+    var sel = document.getElementById('reviewProduct');
+    Object.keys(purchased).forEach(function (id) {
+      var opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = purchased[id];
+      sel.appendChild(opt);
     });
+    if (urlProduct && purchased[urlProduct]) sel.value = urlProduct;
   }
 
   document.querySelectorAll('#ratingStars .bxm-rate').forEach(function (el) {
@@ -134,7 +137,7 @@ $inlineScript = <<<'HTML'
   });
 
   document.getElementById('writeReviewBtn').addEventListener('click', function () {
-    if (!window.BXM.requireLogin()) return;
+    if (!data.loggedIn) { window.BXM.requireLogin(); return; }
     if (!Object.keys(purchased).length) {
       window.BXM.toast('You can review only products you have purchased and received.', 'warning');
       return;
@@ -143,37 +146,25 @@ $inlineScript = <<<'HTML'
   });
 
   document.getElementById('submitReviewBtn').addEventListener('click', function () {
-    var user = window.BXM.user;
     var productId = document.getElementById('reviewProduct').value;
     var comment = document.getElementById('reviewComment').value.trim();
     if (!productId) { window.BXM.toast('Please select a product', 'warning'); return; }
     if (!rating) { window.BXM.toast('Please select a rating', 'warning'); return; }
     if (!comment) { window.BXM.toast('Please write a review', 'warning'); return; }
-    var profileName = (window.BXM.profile && window.BXM.profile.name) || user.displayName || 'Customer';
-    window.BXM.db.ref('reviews').push({
-      uid: user.uid,
-      userName: profileName,
-      productId: productId,
-      productTitle: purchased[productId] || 'Product',
-      rating: rating,
-      comment: comment,
-      status: 'pending',
-      createdAt: Date.now()
-    }).then(function () {
-      bootstrap.Modal.getInstance(document.getElementById('reviewModal')).hide();
-      rating = 0; paintStars();
-      document.getElementById('reviewComment').value = '';
-      window.BXM.toast('Review submitted for moderation', 'success');
-    }).catch(function () {
-      window.BXM.toast('Could not submit review', 'danger');
-    });
+    window.BXM.apiFetch('reviews.php', { method: 'POST', json: { productId: productId, rating: rating, comment: comment } })
+      .then(function (res) {
+        if (!res || !res.ok) throw new Error((res && res.error) || 'Could not submit review');
+        bootstrap.Modal.getInstance(document.getElementById('reviewModal')).hide();
+        rating = 0; paintStars();
+        document.getElementById('reviewComment').value = '';
+        window.BXM.toast('Review submitted for moderation', 'success');
+      }).catch(function (err) {
+        window.BXM.toast(err.message || 'Could not submit review', 'danger');
+      });
   });
 
-  window.BXM.onAuth(function (user) {
-    if (!window.BXM.firebaseReady) return;
-    loadReviews();
-    if (user) loadPurchased(user);
-  });
+  renderReviews();
+  loadPurchasedOptions();
 })();
 </script>
 HTML;

@@ -50,16 +50,6 @@ require_once __DIR__ . '/../includes/header.php';
 $inlineScript = <<<'HTML'
 <script>
 (function () {
-  function anyAdmin(users) {
-    if (!users) return false;
-    var keys = Object.keys(users);
-    for (var i = 0; i < keys.length; i++) {
-      var u = users[keys[i]] || {};
-      if (u.role === 'admin' && u.status !== 'banned') return true;
-    }
-    return false;
-  }
-
   document.getElementById('adminRegisterForm').addEventListener('submit', function (e) {
     e.preventDefault();
     var name = document.getElementById('adminRegName').value.trim();
@@ -71,54 +61,17 @@ $inlineScript = <<<'HTML'
     if (!name || !email || !pass) { window.BXM.toast('Please fill in all fields', 'warning'); return; }
     if (pass.length < 6) { window.BXM.toast('Password must be at least 6 characters', 'warning'); return; }
     if (pass !== confirm) { window.BXM.toast('Passwords do not match', 'warning'); return; }
-    if (!window.BXM.firebaseReady) { window.BXM.toast('Firebase is not configured yet', 'danger'); return; }
 
     btn.disabled = true;
-    window.BXM.db.ref('users').once('value').then(function (snap) {
-      if (anyAdmin(snap.val())) {
-        window.location.href = window.BXM.url('admin/login.php');
-        throw new Error('An admin already exists.');
-      }
-      return window.BXM.auth.createUserWithEmailAndPassword(email, pass);
-    }).then(function (cred) {
-      var user = cred.user;
-      return user.updateProfile({ displayName: name }).catch(function () {}).then(function () {
-        return window.BXM.db.ref('users/' + user.uid).set({
-          name: name,
-          email: email,
-          phone: '',
-          role: 'admin',
-          status: 'active',
-          createdAt: Date.now()
-        });
-      }).then(function () {
-        return user.getIdToken();
+    window.BXM.apiFetch('auth.php', { method: 'POST', json: { action: 'register-admin', name: name, email: email, password: pass } })
+      .then(function (res) {
+        if (!res || !res.ok) throw new Error((res && res.error) || 'Registration failed');
+        window.BXM.toast('Admin account created', 'success');
+        setTimeout(function () { window.location.replace(window.BXM.url('admin/index.php')); }, 500);
+      }).catch(function (err) {
+        btn.disabled = false;
+        window.BXM.toast(err.message || 'Registration failed', 'danger');
       });
-    }).then(function (token) {
-      return fetch(window.BXM.api('session.php'), {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': (window.BXM_APP && window.BXM_APP.csrf) || '' },
-        body: JSON.stringify({ idToken: token })
-      }).then(function (r) {
-        return r.json().then(function (data) { return data || {}; }).catch(function () { return {}; });
-      }).then(function (data) {
-        if (!data.ok || !data.user || data.user.role !== 'admin') {
-          throw new Error(data.error || 'Admin session could not be created.');
-        }
-        return data;
-      });
-    }).then(function () {
-      window.BXM.toast('Admin account created', 'success');
-      window.location.replace(window.BXM.url('admin/index.php'));
-    }).catch(function (err) {
-      btn.disabled = false;
-      var msg = err.message || 'Registration failed';
-      if (err.code === 'auth/email-already-in-use') msg = 'This email is already registered. Use a different email for admin.';
-      else if (err.code === 'auth/invalid-email') msg = 'Please enter a valid email address.';
-      else if (err.code === 'auth/weak-password') msg = 'Password must be at least 6 characters.';
-      window.BXM.toast(msg, 'danger');
-    });
   });
 })();
 </script>

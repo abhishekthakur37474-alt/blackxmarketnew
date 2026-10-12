@@ -6,6 +6,8 @@ $noIndex = true;
 require_once __DIR__ . '/includes/header.php';
 $orderId = isset($_GET['id']) ? preg_replace('/[^A-Za-z0-9_-]/', '', $_GET['id']) : '';
 $showCard = isset($_GET['card']);
+$orderRecord = $orderId !== '' ? bxm_order($orderId) : null;
+$authorizedOrder = ($orderRecord && $orderRecord['uid'] === $currentUser['uid']) ? $orderRecord : null;
 ?>
 <div class="container" id="bxmConfigNotice"></div>
 
@@ -34,11 +36,13 @@ $showCard = isset($_GET['card']);
 <?php
 $encodedOrderId = json_encode($orderId);
 $encodedShowCard = $showCard ? 'true' : 'false';
+$encodedOrder = json_encode($authorizedOrder, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 $inlineScript = <<<HTML
 <script>
 (function () {
   var orderId = {$encodedOrderId};
   var showCard = {$encodedShowCard};
+  var loadedOrder = {$encodedOrder};
   var currentOrder = null;
 
   function deliveryCardHTML(order) {
@@ -140,35 +144,19 @@ $inlineScript = <<<HTML
     document.getElementById('orderDetail').innerHTML = '<div class="bxm-state-box text-center"><i class="bi ' + icon + ' bxm-state-icon"></i><h5>' + title + '</h5><a href="orders.php" class="bxm-btn bxm-btn-primary mt-2">My Orders</a></div>';
   }
 
-  window.BXM.onAuth(function (user) {
-    if (!window.BXM.firebaseReady) {
-      failBox('bi-exclamation-triangle', 'Firebase is not configured yet');
-      return;
-    }
-    if (!user) {
-      failBox('bi-person-x', 'Please login to view this order');
-      return;
-    }
-    if (!orderId) {
-      failBox('bi-receipt', 'Order not found');
-      return;
-    }
-    window.BXM.db.ref('orders/' + orderId).once('value').then(function (snap) {
-      var order = snap.val();
-      if (!order || (order.uid && order.uid !== user.uid)) {
-        failBox('bi-shield-x', 'You are not authorized to view this order');
-        return;
-      }
-      order.orderId = order.orderId || orderId;
-      render(order);
-      if (showCard && (order.status === 'approved' || order.status === 'completed')) {
-        document.getElementById('cardModalBody').innerHTML = deliveryCardHTML(order);
-        new bootstrap.Modal(document.getElementById('cardModal')).show();
-      }
-    }).catch(function () {
-      failBox('bi-wifi-off', 'Could not load this order. Please refresh.');
-    });
-  });
+  if (!orderId) {
+    failBox('bi-receipt', 'Order not found');
+    return;
+  }
+  if (!loadedOrder) {
+    failBox('bi-shield-x', 'You are not authorized to view this order');
+    return;
+  }
+  render(loadedOrder);
+  if (showCard && (loadedOrder.status === 'approved' || loadedOrder.status === 'completed')) {
+    document.getElementById('cardModalBody').innerHTML = deliveryCardHTML(loadedOrder);
+    new bootstrap.Modal(document.getElementById('cardModal')).show();
+  }
 })();
 </script>
 HTML;

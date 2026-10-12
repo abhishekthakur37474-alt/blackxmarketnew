@@ -33,10 +33,12 @@ $inlineScript = <<<'HTML'
     var email = document.getElementById('forgotEmail').value.trim();
     var btn = document.getElementById('forgotBtn');
     if (!email) { window.BXM.toast('Please enter your email', 'warning'); return; }
-    if (!window.BXM.firebaseReady) { window.BXM.toast('Firebase is not configured yet', 'danger'); return; }
     btn.disabled = true;
-    window.BXM.auth.sendPasswordResetEmail(email).then(function () {
-      window.BXM.toast('Password reset link sent. Check your email.', 'success');
+    window.BXM.apiFetch('auth.php', {
+      method: 'POST',
+      body: { action: 'forgot-password', email: email }
+    }).then(function (data) {
+      window.BXM.toast(data.message || 'If that email exists, a reset link has been sent.', 'success');
       btn.disabled = false;
     }).catch(function (err) {
       btn.disabled = false;

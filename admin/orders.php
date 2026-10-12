@@ -2,6 +2,7 @@
 $adminTitle = 'Manage Orders';
 $adminActive = 'orders';
 require_once __DIR__ . '/../includes/admin-header.php';
+$adminOrders = bxm_orders();
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
   <div>
@@ -44,11 +45,11 @@ require_once __DIR__ . '/../includes/admin-header.php';
   </div>
 </div>
 <?php
-$inlineScript = <<<'HTML'
+$encodedOrders = json_encode($adminOrders, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$inlineScript = <<<HTML
 <script>
 window.BXMAdmin.ready(function () {
-  var db = window.BXM.db;
-  var orders = [];
+  var orders = {$encodedOrders} || [];
   var page = 1;
   var PER_PAGE = 15;
 
@@ -121,11 +122,7 @@ window.BXMAdmin.ready(function () {
     document.getElementById(id).addEventListener(id === 'orderSearch' ? 'input' : 'change', function () { page = 1; render(); });
   });
 
-  db.ref('orders').once('value').then(function (s) {
-    s.forEach(function (c) { var o = c.val() || {}; o.orderId = o.orderId || c.key; orders.push(o); });
-    orders.sort(function (a, b) { return (b.createdAt || 0) - (a.createdAt || 0); });
-    render();
-  });
+  render();
 });
 </script>
 HTML;

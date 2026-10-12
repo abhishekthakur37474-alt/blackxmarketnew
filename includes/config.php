@@ -11,15 +11,15 @@ if (!BXM_DEBUG) {
 }
 
 $BXM = [
-    'firebase' => [
-        'apiKey' => 'AIzaSyCEgnp4nzOoVg1zu3ywRLHjQY3uM0dA8Eo',
-        'authDomain' => 'blackxmarket-e227b.firebaseapp.com',
-        'databaseURL' => 'https://blackxmarket-e227b-default-rtdb.asia-southeast1.firebasedatabase.app',
-        'projectId' => 'blackxmarket-e227b',
-        'storageBucket' => 'blackxmarket-e227b.firebasestorage.app',
-        'messagingSenderId' => '1002862140509',
-        'appId' => '1:1002862140509:web:813d12df2a0183625641b4',
-        'measurementId' => 'G-3JQJNQYBGF',
+    // MySQL database connection.
+    // On shared hosting (e.g. Hostinger/cPanel) the database host is usually
+    // "localhost". Change it only if your provider gives a different host.
+    'mysql' => [
+        'host' => 'localhost',
+        'port' => 3306,
+        'database' => 'u758638448_blackxmarket',
+        'username' => 'u758638448_blackxmarket',
+        'password' => 'aS~:!Z^2',
     ],
     'imgbb' => [
         'endpoint' => 'https://api.imgbb.com/1/upload',

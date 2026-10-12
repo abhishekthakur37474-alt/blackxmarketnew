@@ -3,6 +3,9 @@ require_once __DIR__ . '/../includes/helpers.php';
 
 if (bxm_is_logged_in()) {
     $target = $_GET['redirect'] ?? 'index.php';
+    if (stripos($target, 'http') === 0) {
+        $target = 'index.php';
+    }
     bxm_redirect(bxm_url(ltrim($target, '/')));
 }
 
@@ -53,41 +56,21 @@ $inlineScript = <<<HTML
     var password = document.getElementById('loginPassword').value;
     var btn = document.getElementById('loginBtn');
     if (!email || !password) { window.BXM.toast('Please fill in all fields', 'warning'); return; }
-    if (!window.BXM.firebaseReady) { window.BXM.toast('Firebase is not configured yet', 'danger'); return; }
     btn.disabled = true;
     function go() {
-      var target = redirect || window.BXM.url('index.php');
+      var target = window.BXM.url('index.php');
       if (redirect && redirect.indexOf('http') !== 0) target = window.BXM.url(redirect.replace(/^\\//, ''));
       window.location.href = target;
     }
-    window.BXM.auth.signInWithEmailAndPassword(email, password).then(function (cred) {
-      return cred.user.getIdToken().then(function (token) {
-        return fetch(window.BXM.api('session.php'), {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': (window.BXM_APP && window.BXM_APP.csrf) || '' },
-          body: JSON.stringify({ idToken: token })
-        }).then(function (r) {
-          return r.json().then(function (data) { return data || {}; }).catch(function () { return {}; });
-        }).then(function (data) {
-          if (!data.ok) {
-            throw new Error(data.error || 'Session could not be created.');
-          }
-          return data;
-        });
-      }).then(function () {
-        window.BXM.toast('Login successful', 'success');
-        go();
-      });
+    window.BXM.apiFetch('auth.php', {
+      method: 'POST',
+      body: { action: 'login', email: email, password: password }
+    }).then(function (data) {
+      window.BXM.toast('Login successful', 'success');
+      setTimeout(go, 400);
     }).catch(function (err) {
       btn.disabled = false;
-      var msg = err.message || 'Login failed';
-      if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
-        msg = 'Invalid email or password';
-      } else if (err.code === 'auth/too-many-requests') {
-        msg = 'Too many attempts. Try again later.';
-      }
-      window.BXM.toast(msg, 'danger');
+      window.BXM.toast(err.message || 'Login failed', 'danger');
     });
   });
 })();

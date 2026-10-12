@@ -5,6 +5,7 @@ $activePage = 'products';
 require_once __DIR__ . '/includes/header.php';
 $initialQuery = isset($_GET['q']) ? trim($_GET['q']) : '';
 $initialCategory = isset($_GET['category']) ? trim($_GET['category']) : '';
+$productList = bxm_products('active');
 ?>
 <div class="container" id="bxmConfigNotice"></div>
 
@@ -59,11 +60,7 @@ $initialCategory = isset($_GET['category']) ? trim($_GET['category']) : '';
       <span class="text-secondary small" id="resultCount">Loading products...</span>
     </div>
 
-    <div class="row g-3" id="productsGrid">
-      <?php for ($i = 0; $i < 8; $i++): ?>
-        <div class="col-6 col-md-4 col-lg-3"><div class="bxm-skeleton" style="height:280px"></div></div>
-      <?php endfor; ?>
-    </div>
+    <div class="row g-3" id="productsGrid"></div>
 
     <div class="text-center mt-4">
       <button class="bxm-btn bxm-btn-outline" id="loadMoreBtn" hidden>Load More</button>
@@ -71,10 +68,11 @@ $initialCategory = isset($_GET['category']) ? trim($_GET['category']) : '';
   </div>
 </section>
 <?php
-$inlineScript = <<<'HTML'
+$encodedProducts = json_encode($productList, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$inlineScript = <<<HTML
 <script>
 (function () {
-  var all = [];
+  var all = {$encodedProducts} || [];
   var filtered = [];
   var shown = 0;
   var PAGE = 8;
@@ -154,27 +152,17 @@ $inlineScript = <<<'HTML'
     applyFilters();
   });
 
-  window.BXM.onAuth(function () {
-    if (!window.BXM.firebaseReady) return;
-    window.BXM.db.ref('products').once('value').then(function (snap) {
-      snap.forEach(function (child) {
-        var p = child.val() || {};
-        p.id = child.key;
-        if (p.status === 'active') all.push(p);
-      });
-      var cats = {};
-      all.forEach(function (p) { if (p.category) cats[p.category] = true; });
-      var sel = document.getElementById('filterCategory');
-      Object.keys(cats).sort().forEach(function (c) {
-        var opt = document.createElement('option');
-        opt.value = c;
-        opt.textContent = c;
-        sel.appendChild(opt);
-      });
-      if (initialQuery) document.getElementById('filterSearch').value = initialQuery;
-      applyFilters();
-    });
+  var cats = {};
+  all.forEach(function (p) { if (p.category) cats[p.category] = true; });
+  var sel = document.getElementById('filterCategory');
+  Object.keys(cats).sort().forEach(function (c) {
+    var opt = document.createElement('option');
+    opt.value = c;
+    opt.textContent = c;
+    sel.appendChild(opt);
   });
+  if (initialQuery) document.getElementById('filterSearch').value = initialQuery;
+  applyFilters();
 })();
 </script>
 HTML;

@@ -2,6 +2,7 @@
 $adminTitle = 'Manage Coupons';
 $adminActive = 'coupons';
 require_once __DIR__ . '/../includes/admin-header.php';
+$couponList = bxm_coupons();
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
   <div>
@@ -46,11 +47,11 @@ require_once __DIR__ . '/../includes/admin-header.php';
   </div>
 </div>
 <?php
-$inlineScript = <<<'HTML'
+$encodedCoupons = json_encode($couponList, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$inlineScript = <<<HTML
 <script>
 window.BXMAdmin.ready(function () {
-  var db = window.BXM.db;
-  var coupons = [];
+  var coupons = {$encodedCoupons} || [];
   var editingId = null;
   var page = 1;
   var PER_PAGE = 15;
@@ -80,11 +81,7 @@ window.BXMAdmin.ready(function () {
   }
 
   function load() {
-    db.ref('coupons').once('value').then(function (s) {
-      coupons = [];
-      s.forEach(function (c) { var v = c.val() || {}; v.id = c.key; coupons.push(v); });
-      render();
-    });
+    render();
   }
 
   function openModal(coupon) {

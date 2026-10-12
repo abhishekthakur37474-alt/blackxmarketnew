@@ -4,20 +4,15 @@
   var cfg = window.BXM_APP || {};
   var base = cfg.base || '';
   var currency = cfg.currency || '\u20B9';
-  var fbReady = window.BXM_FIREBASE_READY === true;
-  var auth = fbReady ? window.BXM_FB.auth : null;
-  var db = fbReady ? window.BXM_FB.db : null;
 
   var state = {
-    user: null,
-    profile: null,
+    user: cfg.loggedIn ? { uid: cfg.userId || '', role: cfg.role || 'user' } : null,
+    profile: cfg.loggedIn ? { uid: cfg.userId || '', role: cfg.role || 'user' } : null,
     cart: {},
     wishlist: {},
     notifications: {},
-    unread: 0,
-    authResolved: false
+    unread: 0
   };
-  var authWaiters = [];
 
   function url(path) {
     return base + '/' + String(path || '').replace(/^\//, '');
@@ -241,15 +236,6 @@
     return false;
   }
 
-  function getToken() {
-    if (!auth || !auth.currentUser) {
-      return Promise.resolve('');
-    }
-    return auth.currentUser.getIdToken().catch(function () {
-      return '';
-    });
-  }
-
   function csrfToken() {
     return (window.BXM_APP && window.BXM_APP.csrf) || '';
   }
@@ -265,23 +251,21 @@
 
   function apiFetch(path, options) {
     options = options || {};
-    return getToken().then(function (token) {
-      var headers = csrfHeaders(options.headers || {});
-      if (token) {
-        headers.Authorization = 'Bearer ' + token;
-      }
-      if (options.json) {
-        headers['Content-Type'] = 'application/json';
-      }
-      return fetch(api(path), {
-        method: options.method || 'GET',
-        headers: headers,
-        body: options.json ? JSON.stringify(options.json) : options.body
-      }).then(function (res) {
-        return res.json().catch(function () {
-          return { ok: false, error: 'Invalid server response' };
-        });
+    var headers = csrfHeaders(options.headers || {});
+    if (options.json) {
+      headers['Content-Type'] = 'application/json';
+    }
+    return fetch(api(path), {
+      method: options.method || 'GET',
+      credentials: 'same-origin',
+      headers: headers,
+      body: options.json ? JSON.stringify(options.json) : options.body
+    }).then(function (res) {
+      return res.json().catch(function () {
+        return { ok: false, error: 'Invalid server response' };
       });
+    }).catch(function () {
+      return { ok: false, error: 'Network error. Please try again.' };
     });
   }
 
@@ -289,16 +273,17 @@
     var fd = new FormData();
     fd.append('image', file);
     fd.append('folder', folder || 'misc');
-    return getToken().then(function (token) {
-      var headers = csrfHeaders({});
-      if (token) {
-        headers.Authorization = 'Bearer ' + token;
-      }
-      return fetch(api('upload-image.php'), { method: 'POST', headers: headers, body: fd }).then(function (res) {
-        return res.json().catch(function () {
-          return { ok: false, error: 'Upload failed' };
-        });
+    return fetch(api('upload-image.php'), {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: csrfHeaders({}),
+      body: fd
+    }).then(function (res) {
+      return res.json().catch(function () {
+        return { ok: false, error: 'Upload failed' };
       });
+    }).catch(function () {
+      return { ok: false, error: 'Upload failed' };
     });
   }
 
@@ -310,22 +295,17 @@
     if (!productId) {
       return Promise.resolve(false);
     }
-    var ref = db.ref('carts/' + state.user.uid + '/' + productId);
-    return ref.transaction(function (current) {
-      if (current) {
-        current.quantity = (current.quantity || 0) + 1;
-        current.addedAt = Date.now();
-        return current;
+    return apiFetch('cart.php', { method: 'POST', json: { action: 'add', productId: productId } }).then(function (res) {
+      if (!res.ok) {
+        toast(options.errorMessage || res.error || 'Could not add to cart', 'danger');
+        return false;
       }
-      return { quantity: 1, addedAt: Date.now() };
-    }).then(function () {
-      if (!options.silent) {
-        toast('Added to cart', 'success');
-      }
+      loadCart().then(function () {
+        if (!options.silent) {
+          toast('Added to cart', 'success');
+        }
+      });
       return true;
-    }).catch(function () {
-      toast(options.errorMessage || 'Could not add to cart', 'danger');
-      return false;
     });
   }
 
@@ -333,35 +313,29 @@
     if (!requireLogin()) {
       return;
     }
-    if (!productId || !state.user) {
+    if (!productId) {
       return;
     }
-    var payload = {};
-    payload[productId] = { quantity: 1, addedAt: Date.now() };
-    db.ref('carts/' + state.user.uid).set(payload).then(function () {
+    apiFetch('cart.php', { method: 'POST', json: { action: 'buy-now', productId: productId } }).then(function (res) {
+      if (!res.ok) {
+        toast(res.error || 'Could not start payment', 'danger');
+        return;
+      }
       window.location.href = url('payment.php');
-    }).catch(function () {
-      toast('Could not start payment', 'danger');
     });
   }
 
   function setCartQuantity(productId, quantity) {
-    if (!state.user) {
-      return Promise.resolve();
-    }
-    var ref = db.ref('carts/' + state.user.uid + '/' + productId);
-    if (quantity <= 0) {
-      return ref.remove();
-    }
-    return ref.update({ quantity: quantity });
+    return apiFetch('cart.php', { method: 'POST', json: { action: 'set', productId: productId, quantity: quantity } }).then(function (res) {
+      return loadCart();
+    });
   }
 
   function removeFromCart(productId) {
-    if (!state.user) {
-      return Promise.resolve();
-    }
-    return db.ref('carts/' + state.user.uid + '/' + productId).remove().then(function () {
-      toast('Removed from cart', 'info');
+    return apiFetch('cart.php', { method: 'POST', json: { action: 'remove', productId: productId } }).then(function () {
+      return loadCart().then(function () {
+        toast('Removed from cart', 'info');
+      });
     });
   }
 
@@ -369,25 +343,28 @@
     if (!requireLogin()) {
       return Promise.resolve();
     }
-    var ref = db.ref('wishlists/' + state.user.uid + '/' + productId);
-    return ref.once('value').then(function (snap) {
-      if (snap.exists()) {
-        return ref.remove().then(function () {
-          toast('Removed from wishlist', 'info');
-        });
+    return apiFetch('wishlist.php', { method: 'POST', json: { action: 'toggle', productId: productId } }).then(function (res) {
+      if (!res.ok) {
+        toast(res.error || 'Could not update wishlist', 'danger');
+        return;
       }
-      return ref.set(true).then(function () {
-        toast('Added to wishlist', 'success');
+      return loadWishlist().then(function () {
+        toast(res.wished ? 'Added to wishlist' : 'Removed from wishlist', res.wished ? 'success' : 'info');
       });
     });
   }
 
   function moveToCart(productId) {
-    if (!state.user) {
+    if (!requireLogin()) {
       return;
     }
-    db.ref('wishlists/' + state.user.uid + '/' + productId).remove();
-    buyNow(productId);
+    apiFetch('wishlist.php', { method: 'POST', json: { action: 'move-to-cart', productId: productId } }).then(function (res) {
+      if (!res.ok) {
+        toast(res.error || 'Could not start payment', 'danger');
+        return;
+      }
+      window.location.href = url('payment.php');
+    });
   }
 
   function updateCartCount() {
@@ -399,6 +376,7 @@
       el.textContent = count;
       el.hidden = count === 0;
     });
+    return count;
   }
 
   function updateWishlistCount() {
@@ -407,27 +385,38 @@
       el.textContent = count;
       el.hidden = count === 0;
     });
+    return count;
   }
 
-  function attachCartListener() {
+  function loadCart() {
     if (!state.user) {
-      return;
-    }
-    db.ref('carts/' + state.user.uid).on('value', function (snap) {
-      state.cart = snap.val() || {};
+      state.cart = {};
       updateCartCount();
       document.dispatchEvent(new CustomEvent('bxm:cart', { detail: state.cart }));
+      return Promise.resolve(state.cart);
+    }
+    return apiFetch('cart.php?action=list').then(function (res) {
+      state.cart = (res && res.items) ? res.items : {};
+      updateCartCount();
+      document.dispatchEvent(new CustomEvent('bxm:cart', { detail: state.cart }));
+      return state.cart;
     });
   }
 
-  function attachWishlistListener() {
+  function loadWishlist() {
     if (!state.user) {
-      return;
-    }
-    db.ref('wishlists/' + state.user.uid).on('value', function (snap) {
-      state.wishlist = snap.val() || {};
+      state.wishlist = {};
       updateWishlistCount();
       document.dispatchEvent(new CustomEvent('bxm:wishlist', { detail: state.wishlist }));
+      return Promise.resolve(state.wishlist);
+    }
+    return apiFetch('wishlist.php?action=list').then(function (res) {
+      var map = {};
+      (res && res.ids ? res.ids : []).forEach(function (id) { map[id] = true; });
+      state.wishlist = map;
+      updateWishlistCount();
+      document.dispatchEvent(new CustomEvent('bxm:wishlist', { detail: state.wishlist }));
+      return state.wishlist;
     });
   }
 
@@ -499,164 +488,44 @@
     if (!n || n.read) {
       return;
     }
-    db.ref('notifications/' + state.user.uid + '/' + id + '/read').set(true);
+    n.read = true;
+    renderNotifications();
+    apiFetch('notifications.php', { method: 'POST', json: { action: 'read', id: id } });
   }
 
   function markAllNotificationsRead() {
     if (!state.user) {
       return;
     }
-    var updates = {};
+    var changed = false;
     Object.keys(state.notifications).forEach(function (id) {
       if (!state.notifications[id].read) {
-        updates['notifications/' + state.user.uid + '/' + id + '/read'] = true;
+        state.notifications[id].read = true;
+        changed = true;
       }
     });
-    if (Object.keys(updates).length) {
-      db.ref().update(updates);
+    renderNotifications();
+    if (changed) {
+      apiFetch('notifications.php', { method: 'POST', json: { action: 'read-all' } });
       toast('All notifications marked as read', 'success');
     }
   }
 
-  function pushNotification(uid, data) {
-    if (!db || !uid) {
-      return Promise.resolve();
-    }
-    var payload = {
-      title: data.title || 'Notification',
-      message: data.message || '',
-      type: data.type || 'info',
-      link: data.link || '',
-      read: false,
-      createdAt: Date.now()
-    };
-    return db.ref('notifications/' + uid).push(payload).catch(function () {});
-  }
-
-  function attachNotificationsListener() {
+  function loadNotifications() {
     if (!state.user) {
-      return;
+      state.notifications = {};
+      renderNotifications();
+      return Promise.resolve(state.notifications);
     }
-    db.ref('notifications/' + state.user.uid).orderByChild('createdAt').limitToLast(30).on('value', function (snap) {
-      state.notifications = snap.val() || {};
+    return apiFetch('notifications.php?action=list').then(function (res) {
+      var map = {};
+      (res && res.notifications ? res.notifications : []).forEach(function (n) {
+        map[n.id] = n;
+      });
+      state.notifications = map;
       renderNotifications();
       document.dispatchEvent(new CustomEvent('bxm:notifications', { detail: state.notifications }));
-    });
-  }
-
-  function updateNavAuth() {
-    var loggedIn = !!state.user;
-    var role = state.profile && state.profile.role;
-    document.querySelectorAll('[data-bxm-guest]').forEach(function (el) {
-      if (!state.authResolved || loggedIn) {
-        el.setAttribute('hidden', '');
-        el.style.display = 'none';
-      } else {
-        el.removeAttribute('hidden');
-        el.style.display = '';
-      }
-    });
-    document.querySelectorAll('[data-bxm-user-menu]').forEach(function (el) {
-      el.hidden = !loggedIn;
-    });
-    document.querySelectorAll('[data-bxm-admin-link]').forEach(function (el) {
-      el.hidden = role !== 'admin';
-    });
-    if (loggedIn) {
-      var name = (state.profile && state.profile.name) || state.user.displayName || state.user.email || 'Account';
-      document.querySelectorAll('[data-bxm-user-name]').forEach(function (el) {
-        el.textContent = name;
-      });
-    }
-  }
-
-  function syncSession(user) {
-    return getToken().then(function (token) {
-      if (!user || !token) {
-        if (cfg.role === 'admin') {
-          return Promise.resolve();
-        }
-        return fetch(api('session.php'), { method: 'DELETE', credentials: 'same-origin', headers: csrfHeaders({}) }).catch(function () {});
-      }
-      return fetch(api('session.php'), {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: csrfHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ idToken: token })
-      }).catch(function () {});
-    });
-  }
-
-  function loadProfile(uid) {
-    if (!db || !uid) {
-      updateNavAuth();
-      return Promise.resolve(null);
-    }
-    return db.ref('users/' + uid).once('value').then(function (snap) {
-      state.profile = snap.val();
-      updateNavAuth();
-      document.dispatchEvent(new CustomEvent('bxm:profile', { detail: state.profile }));
-      return state.profile;
-    }).catch(function () {
-      state.profile = state.profile || null;
-      updateNavAuth();
-      return state.profile;
-    });
-  }
-
-  function resolveAuth(user) {
-    state.user = user;
-    updateNavAuth();
-    if (!state.authResolved) {
-      state.authResolved = true;
-      authWaiters.forEach(function (cb) {
-        cb(user);
-      });
-      authWaiters = [];
-    }
-  }
-
-  function onAuth(cb) {
-    if (state.authResolved) {
-      cb(state.user);
-    } else {
-      authWaiters.push(cb);
-    }
-  }
-
-  function initAuth() {
-    if (!fbReady || !auth) {
-      resolveAuth(null);
-      return;
-    }
-    auth.onAuthStateChanged(function (user) {
-      if (user) {
-        state.user = user;
-        updateNavAuth();
-        loadProfile(user.uid).then(function () {
-          resolveAuth(user);
-          try { attachCartListener(); } catch (e) {}
-          try { attachWishlistListener(); } catch (e) {}
-          try { attachNotificationsListener(); } catch (e) {}
-          syncSession(user);
-        }).catch(function () {
-          updateNavAuth();
-          resolveAuth(user);
-        });
-      } else {
-        state.profile = null;
-        state.cart = {};
-        state.wishlist = {};
-        state.notifications = {};
-        state.unread = 0;
-        updateCartCount();
-        updateWishlistCount();
-        updateNotifCount();
-        renderNotifications();
-        updateNavAuth();
-        resolveAuth(null);
-        syncSession(null);
-      }
+      return state.notifications;
     });
   }
 
@@ -696,20 +565,15 @@
       }
       var logout = e.target.closest('[data-bxm-logout]');
       if (logout) {
+        if (logout.getAttribute('href') && logout.getAttribute('href') !== '#') {
+          return;
+        }
         e.preventDefault();
         confirmDialog('Are you sure you want to logout?', { confirmText: 'Logout' }).then(function (ok) {
           if (!ok) {
             return;
           }
-          fetch(api('session.php'), { method: 'DELETE', headers: csrfHeaders({}) }).finally(function () {
-            if (auth) {
-              auth.signOut().then(function () {
-                window.location.href = url('index.php');
-              });
-            } else {
-              window.location.href = url('index.php');
-            }
-          });
+          window.location.href = url('auth/logout.php');
         });
       }
     });
@@ -731,7 +595,6 @@
     productCardHTML: productCardHTML,
     renderProducts: renderProducts,
     requireLogin: requireLogin,
-    getToken: getToken,
     apiFetch: apiFetch,
     uploadImage: uploadImage,
     addToCart: addToCart,
@@ -740,30 +603,25 @@
     removeFromCart: removeFromCart,
     toggleWishlist: toggleWishlist,
     moveToCart: moveToCart,
-    pushNotification: pushNotification,
     markNotificationRead: markNotificationRead,
     markAllNotificationsRead: markAllNotificationsRead,
     renderNotifications: renderNotifications,
     timeAgo: timeAgo,
-    onAuth: onAuth,
+    loadCart: loadCart,
+    loadWishlist: loadWishlist,
+    loadNotifications: loadNotifications,
     state: state,
-    get db() { return db; },
-    get auth() { return auth; },
-    get firebaseReady() { return fbReady; },
     get user() { return state.user; },
     get profile() { return state.profile; },
-     get isAdmin() { return !!(state.profile && state.profile.role === 'admin') || (cfg.role === 'admin'); }
+    get isAdmin() { return !!(state.user && state.user.role === 'admin'); }
   };
 
   function boot() {
     initGlobalEvents();
-    initAuth();
-    if (!fbReady) {
-      var host = document.getElementById('bxmConfigNotice');
-      if (host) {
-        host.innerHTML = '<div class="alert alert-warning border-0" style="background:#1c1405;color:#fbbf60">' +
-          '<i class="bi bi-exclamation-triangle me-2"></i>Firebase is not configured yet. Set your Firebase Web API key in <code>includes/config.php</code> to load live data.</div>';
-      }
+    if (state.user) {
+      loadCart();
+      loadWishlist();
+      loadNotifications();
     }
     document.querySelectorAll('[data-bxm-year]').forEach(function (el) {
       el.textContent = new Date().getFullYear();

@@ -2,6 +2,7 @@
 $adminTitle = 'Manage Payments';
 $adminActive = 'payments';
 require_once __DIR__ . '/../includes/admin-header.php';
+$paymentOrders = bxm_orders();
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
   <div>
@@ -54,11 +55,11 @@ require_once __DIR__ . '/../includes/admin-header.php';
   </div>
 </div>
 <?php
-$inlineScript = <<<'HTML'
+$encodedPaymentOrders = json_encode($paymentOrders, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$inlineScript = <<<HTML
 <script>
 window.BXMAdmin.ready(function () {
-  var db = window.BXM.db;
-  var orders = [];
+  var orders = {$encodedPaymentOrders} || [];
   var filter = 'pending';
   var activeOrder = null;
   var page = 1;
@@ -138,32 +139,27 @@ window.BXMAdmin.ready(function () {
 
   document.getElementById('approveDeliverBtn').addEventListener('click', function () {
     if (!activeOrder) return;
-    var details = {};
-    var order = 0;
+    var details = [];
     var empty = true;
     document.querySelectorAll('#deliveryList .bxm-detail-field').forEach(function (row) {
       var name = row.querySelector('[data-dname]').value.trim();
       var value = row.querySelector('[data-dvalue]').value.trim();
-      if (name) { details['d' + (order + 1)] = { name: name, value: value, order: order }; order++; empty = false; }
+      if (name) { details.push({ name: name, value: value }); empty = false; }
     });
     if (empty) { window.BXM.toast('Add at least one delivery detail', 'warning'); return; }
     var btn = document.getElementById('approveDeliverBtn');
     btn.disabled = true;
-    db.ref('orders/' + activeOrder.orderId).update({ status: 'approved', deliveryDetails: details, rejectionReason: '', updatedAt: Date.now() })
-      .then(function () {
+    window.BXM.apiFetch('data.php', { method: 'POST', json: { resource: 'order', action: 'approve', orderId: activeOrder.orderId, deliveryDetails: details } })
+      .then(function (res) {
         btn.disabled = false;
-        if (activeOrder.uid) {
-          window.BXM.pushNotification(activeOrder.uid, {
-            title: 'Order approved',
-            message: 'Your order ' + activeOrder.orderId + ' is approved. Your delivery card is now available.',
-            type: 'success',
-            link: window.BXM.url('order-details.php?id=' + encodeURIComponent(activeOrder.orderId) + '&card=1')
-          });
-        }
+        if (!res || !res.ok) throw new Error((res && res.error) || 'Could not approve order');
+        activeOrder.status = 'approved';
+        activeOrder.deliveryDetails = details.map(function (d, i) { return { name: d.name, value: d.value, order: i }; });
+        activeOrder.rejectionReason = '';
         bootstrap.Modal.getInstance(document.getElementById('approveModal')).hide();
         window.BXM.toast('Order approved and delivered', 'success');
-        reload();
-      }).catch(function () { btn.disabled = false; window.BXM.toast('Could not approve order', 'danger'); });
+        render();
+      }).catch(function (err) { btn.disabled = false; window.BXM.toast(err.message || 'Could not approve order', 'danger'); });
   });
 
   document.getElementById('rejectConfirmBtn').addEventListener('click', function () {
@@ -172,21 +168,16 @@ window.BXMAdmin.ready(function () {
     if (!reason) { window.BXM.toast('Please enter a rejection reason', 'warning'); return; }
     var btn = document.getElementById('rejectConfirmBtn');
     btn.disabled = true;
-    db.ref('orders/' + activeOrder.orderId).update({ status: 'rejected', rejectionReason: reason, updatedAt: Date.now() })
-      .then(function () {
+    window.BXM.apiFetch('data.php', { method: 'POST', json: { resource: 'order', action: 'reject', orderId: activeOrder.orderId, reason: reason } })
+      .then(function (res) {
         btn.disabled = false;
-        if (activeOrder.uid) {
-          window.BXM.pushNotification(activeOrder.uid, {
-            title: 'Payment rejected',
-            message: 'Your payment for order ' + activeOrder.orderId + ' was rejected. Reason: ' + reason,
-            type: 'danger',
-            link: window.BXM.url('order-details.php?id=' + encodeURIComponent(activeOrder.orderId))
-          });
-        }
+        if (!res || !res.ok) throw new Error((res && res.error) || 'Could not reject order');
+        activeOrder.status = 'rejected';
+        activeOrder.rejectionReason = reason;
         bootstrap.Modal.getInstance(document.getElementById('rejectModal')).hide();
         window.BXM.toast('Payment rejected', 'info');
-        reload();
-      }).catch(function () { btn.disabled = false; window.BXM.toast('Could not reject order', 'danger'); });
+        render();
+      }).catch(function (err) { btn.disabled = false; window.BXM.toast(err.message || 'Could not reject order', 'danger'); });
   });
 
   document.querySelectorAll('[data-pfilter]').forEach(function (btn) {
@@ -199,16 +190,7 @@ window.BXMAdmin.ready(function () {
     });
   });
 
-  function reload() {
-    db.ref('orders').once('value').then(function (s) {
-      orders = [];
-      s.forEach(function (c) { var o = c.val() || {}; o.orderId = o.orderId || c.key; orders.push(o); });
-      orders.sort(function (a, b) { return (b.createdAt || 0) - (a.createdAt || 0); });
-      render();
-    });
-  }
-
-  reload();
+  render();
 });
 </script>
 HTML;

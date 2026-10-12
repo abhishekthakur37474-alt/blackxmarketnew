@@ -4,6 +4,7 @@ $pageTitle = 'Notifications';
 $pageDescription = 'Your account notifications and order updates.';
 $noIndex = true;
 require_once __DIR__ . '/includes/header.php';
+$notifList = bxm_notifications($currentUser['uid'], 50);
 ?>
 <div class="container" id="bxmConfigNotice"></div>
 
@@ -16,16 +17,15 @@ require_once __DIR__ . '/includes/header.php';
       </div>
       <button type="button" class="bxm-btn bxm-btn-outline bxm-btn-sm" id="notifMarkAllBtn"><i class="bi bi-check2-all"></i> Mark all as read</button>
     </div>
-    <div class="bxm-card p-0" id="notifFullList">
-      <div class="p-4"><div class="bxm-skeleton" style="height:64px"></div></div>
-    </div>
+    <div class="bxm-card p-0" id="notifFullList"></div>
   </div>
 </section>
 <?php
-$inlineScript = <<<'HTML'
+$encodedNotifs = json_encode($notifList, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$inlineScript = <<<HTML
 <script>
 (function () {
-  var notifications = [];
+  var notifications = {$encodedNotifs} || [];
 
   function icon(type) {
     var map = {
@@ -56,8 +56,11 @@ $inlineScript = <<<'HTML'
   }
 
   function markRead(id) {
-    if (!window.BXM.user) return;
-    window.BXM.db.ref('notifications/' + window.BXM.user.uid + '/' + id + '/read').set(true);
+    if (!id) return;
+    notifications.forEach(function (n) { if (String(n.id) === String(id)) n.read = true; });
+    render();
+    window.BXM.apiFetch('notifications.php', { method: 'POST', json: { action: 'read', id: id } });
+    window.BXM.loadNotifications();
   }
 
   document.getElementById('notifFullList').addEventListener('click', function (e) {
@@ -66,22 +69,12 @@ $inlineScript = <<<'HTML'
   });
 
   document.getElementById('notifMarkAllBtn').addEventListener('click', function () {
+    notifications.forEach(function (n) { n.read = true; });
+    render();
     window.BXM.markAllNotificationsRead();
   });
 
-  window.BXM.onAuth(function (user) {
-    if (!window.BXM.firebaseReady || !user) return;
-    window.BXM.db.ref('notifications/' + user.uid).orderByChild('createdAt').on('value', function (snap) {
-      notifications = [];
-      snap.forEach(function (c) {
-        var n = c.val() || {};
-        n.id = c.key;
-        notifications.push(n);
-      });
-      notifications.sort(function (a, b) { return Number(b.createdAt || 0) - Number(a.createdAt || 0); });
-      render();
-    });
-  });
+  render();
 })();
 </script>
 HTML;

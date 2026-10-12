@@ -23,10 +23,6 @@ $inlineScript = isset($inlineScript) ? $inlineScript : '';
 <div class="bxm-loader" id="bxmLoader"><div class="bxm-spinner"></div></div>
 
 <script src="<?= bxm_url('assets/vendor/bootstrap/bootstrap.bundle.min.js') ?>"></script>
-<script src="<?= bxm_url('assets/vendor/firebase/firebase-app-compat.js') ?>"></script>
-<script src="<?= bxm_url('assets/vendor/firebase/firebase-auth-compat.js') ?>"></script>
-<script src="<?= bxm_url('assets/vendor/firebase/firebase-database-compat.js') ?>"></script>
-<script src="<?= bxm_url('firebase/firebase-init.js') ?>"></script>
 <script src="<?= bxm_url('assets/js/app.js') ?>"></script>
 <script src="<?= bxm_url('assets/js/admin.js') ?>"></script>
 <?= $inlineScript ?>

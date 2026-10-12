@@ -1,19 +1,16 @@
 <?php
 require_once __DIR__ . '/../includes/helpers.php';
 
-if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
-    bxm_json(['ok' => false, 'error' => 'Method not allowed'], 405);
-}
+bxm_require_post();
+bxm_require_csrf();
 
-$idToken = bxm_bearer_token();
-$verified = bxm_verify_id_token($idToken);
-
-if (!$verified || empty($verified['uid'])) {
+$user = bxm_session_user();
+if (!$user) {
     bxm_json(['ok' => false, 'error' => 'Please login to apply coupons.'], 401);
 }
 
 $input = bxm_input_json();
-$result = bxm_validate_coupon($input['code'] ?? '', $input['cartAmount'] ?? 0, $idToken);
+$result = bxm_validate_coupon($input['code'] ?? '', $input['cartAmount'] ?? 0);
 
 if (empty($result['ok'])) {
     bxm_json(['ok' => false, 'error' => $result['error'] ?? 'Invalid coupon.'], 400);

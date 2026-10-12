@@ -2,6 +2,23 @@
 $adminTitle = 'Manage Users';
 $adminActive = 'users';
 require_once __DIR__ . '/../includes/admin-header.php';
+
+$adminUsers = [];
+foreach (bxm_all('SELECT * FROM users ORDER BY created_at DESC') as $userRow) {
+    $adminUsers[] = bxm_user_row_to_array($userRow);
+}
+$adminOrderCounts = [];
+$adminUserOrders = [];
+foreach (bxm_orders() as $adminOrder) {
+    $ouid = $adminOrder['uid'];
+    $adminOrderCounts[$ouid] = ($adminOrderCounts[$ouid] ?? 0) + 1;
+    $adminUserOrders[$ouid][] = $adminOrder;
+}
+$usersData = [
+    'users' => $adminUsers,
+    'orderCounts' => (object) $adminOrderCounts,
+    'userOrders' => (object) $adminUserOrders,
+];
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
   <div>
@@ -38,13 +55,14 @@ require_once __DIR__ . '/../includes/admin-header.php';
   </div>
 </div>
 <?php
-$inlineScript = <<<'HTML'
+$encodedUsers = json_encode($usersData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$inlineScript = <<<HTML
 <script>
 window.BXMAdmin.ready(function () {
-  var db = window.BXM.db;
-  var users = [];
-  var orderCounts = {};
-  var userOrders = {};
+  var data = {$encodedUsers} || { users: [], orderCounts: {}, userOrders: {} };
+  var users = data.users || [];
+  var orderCounts = data.orderCounts || {};
+  var userOrders = data.userOrders || {};
   var page = 1;
   var PER_PAGE = 15;
 
@@ -103,10 +121,15 @@ window.BXMAdmin.ready(function () {
       var uid = toggle.getAttribute('data-toggle-user');
       var target = users.filter(function (x) { return x.uid === uid; })[0];
       var next = (target && target.status === 'banned') ? 'active' : 'banned';
-      db.ref('users/' + uid).update({ status: next }).then(function () {
-        window.BXM.toast('User ' + (next === 'banned' ? 'disabled' : 'enabled'), 'success');
-        load();
-      });
+      window.BXM.apiFetch('data.php', { method: 'POST', json: { resource: 'user', action: 'toggle-status', uid: uid } })
+        .then(function (res) {
+          if (!res || !res.ok) throw new Error((res && res.error) || 'Could not update user');
+          if (target) target.status = next;
+          window.BXM.toast('User ' + (next === 'banned' ? 'disabled' : 'enabled'), 'success');
+          render();
+        }).catch(function (err) {
+          window.BXM.toast(err.message || 'Could not update user', 'danger');
+        });
     }
   });
 
@@ -114,27 +137,7 @@ window.BXMAdmin.ready(function () {
     document.getElementById(id).addEventListener(id === 'userSearch' ? 'input' : 'change', function () { page = 1; render(); });
   });
 
-  function load() {
-    db.ref('orders').once('value').then(function (s) {
-      orderCounts = {}; userOrders = {};
-      s.forEach(function (c) {
-        var o = c.val() || {};
-        o.orderId = o.orderId || c.key;
-        orderCounts[o.uid] = (orderCounts[o.uid] || 0) + 1;
-        (userOrders[o.uid] = userOrders[o.uid] || []).push(o);
-      });
-    });
-    db.ref('users').once('value').then(function (s) {
-      users = [];
-      s.forEach(function (c) { var u = c.val() || {}; u.uid = c.key; users.push(u); });
-      users.sort(function (a, b) { return (b.createdAt || 0) - (a.createdAt || 0); });
-      render();
-    }).catch(function () {
-      document.getElementById('usersTable').innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">User list requires root-level admin read rules. Update your Realtime Database rules.</td></tr>';
-    });
-  }
-
-  load();
+  render();
 });
 </script>
 HTML;

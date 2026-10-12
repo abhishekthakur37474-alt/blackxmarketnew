@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/helpers.php';
+bxm_boot();
 
 $pageTitle = isset($pageTitle) ? $pageTitle : 'Home';
 $pageDescription = isset($pageDescription) ? $pageDescription : 'BLACK X MARKET - premium digital gaming products delivered instantly.';
@@ -8,6 +9,11 @@ $noIndex = isset($noIndex) ? $noIndex : false;
 $bodyClass = isset($bodyClass) ? $bodyClass : '';
 $siteName = bxm_site('name');
 $canonical = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . ($_SERVER['REQUEST_URI'] ?? '/');
+
+$currentUser = bxm_session_user();
+$navCartCount = $currentUser ? bxm_cart_count($currentUser['uid']) : 0;
+$navWishlistCount = $currentUser ? bxm_wishlist_count($currentUser['uid']) : 0;
+$navNotifCount = $currentUser ? bxm_unread_count($currentUser['uid']) : 0;
 ?>
 <!doctype html>
 <html lang="en" data-bs-theme="dark">
@@ -32,12 +38,13 @@ $canonical = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' 
 <link href="<?= bxm_url('assets/vendor/bootstrap-icons/bootstrap-icons.min.css') ?>" rel="stylesheet">
 <link href="<?= bxm_url('assets/css/style.css') ?>" rel="stylesheet">
 <script>
-window.BXM_FIREBASE_CONFIG = <?= json_encode(bxm_firebase()) ?>;
 window.BXM_APP = {
   base: <?= json_encode(BXM_BASE) ?>,
   currency: <?= json_encode(bxm_site('currency')) ?>,
   csrf: <?= json_encode(bxm_csrf_token()) ?>,
-  firebaseReady: false
+  loggedIn: <?= $currentUser ? 'true' : 'false' ?>,
+  userId: <?= json_encode($currentUser['uid'] ?? '') ?>,
+  role: <?= json_encode($currentUser['role'] ?? '') ?>
 };
 </script>
 </head>

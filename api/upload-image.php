@@ -5,16 +5,15 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     bxm_json(['ok' => false, 'error' => 'Method not allowed'], 405);
 }
 
-$idToken = bxm_bearer_token();
-$verified = bxm_verify_id_token($idToken);
+bxm_require_csrf();
 
-if (!$verified || empty($verified['uid'])) {
+$user = bxm_session_user();
+if (!$user) {
     bxm_json(['ok' => false, 'error' => 'Please login to upload images.'], 401);
 }
 
-$uid = $verified['uid'];
-$record = bxm_get_user_record($uid, $idToken);
-$role = $record['role'] ?? 'user';
+$uid = $user['uid'];
+$role = $user['role'] ?? 'user';
 $folder = $_POST['folder'] ?? 'misc';
 
 $restricted = ['product', 'products', 'carousel', 'carousels'];

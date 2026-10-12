@@ -1,23 +1,18 @@
 <?php
 require_once __DIR__ . '/../includes/helpers.php';
 
-if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
-    bxm_json(['ok' => false, 'error' => 'Method not allowed'], 405);
-}
+bxm_require_post();
+bxm_require_csrf();
 
-$idToken = bxm_bearer_token();
-$verified = bxm_verify_id_token($idToken);
-
-if (!$verified || empty($verified['uid'])) {
+$user = bxm_session_user();
+if (!$user) {
     bxm_json(['ok' => false, 'error' => 'Please login to place an order.'], 401);
 }
-
-$uid = $verified['uid'];
-$record = bxm_get_user_record($uid, $idToken);
-if (isset($record['status']) && $record['status'] === 'banned') {
+if ($user['status'] === 'banned') {
     bxm_json(['ok' => false, 'error' => 'Your account has been disabled.'], 403);
 }
 
+$uid = $user['uid'];
 $input = bxm_input_json();
 $transactionId = trim($input['transactionId'] ?? '');
 $paymentScreenshotUrl = trim($input['paymentScreenshotUrl'] ?? '');
@@ -30,37 +25,31 @@ if ($paymentScreenshotUrl === '') {
     bxm_json(['ok' => false, 'error' => 'Payment screenshot is required.'], 400);
 }
 
-$cartResult = bxm_rtdb_get('carts/' . $uid, $idToken);
-$cart = (!empty($cartResult['ok']) && is_array($cartResult['data'])) ? $cartResult['data'] : [];
-
+$cart = bxm_cart_items($uid);
 if (empty($cart)) {
     bxm_json(['ok' => false, 'error' => 'No product selected.'], 400);
 }
-
-$productsResult = bxm_rtdb_get('products', $idToken);
-$products = (!empty($productsResult['ok']) && is_array($productsResult['data'])) ? $productsResult['data'] : [];
 
 $items = [];
 $subtotal = 0;
 
 foreach ($cart as $productId => $entry) {
-    if (!isset($products[$productId])) {
+    $product = bxm_product($productId);
+    if (!$product) {
         continue;
     }
-    $product = $products[$productId];
-    $status = $product['status'] ?? 'active';
-    if ($status !== 'active') {
+    if ($product['status'] !== 'active') {
         bxm_json(['ok' => false, 'error' => 'This product is no longer available.'], 400);
     }
     $quantity = max(1, (int) ($entry['quantity'] ?? 1));
-    $price = (float) ($product['discountedPrice'] ?? $product['originalPrice'] ?? 0);
+    $price = (float) ($product['discountedPrice'] ?: $product['originalPrice']);
     $lineTotal = round($price * $quantity, 2);
     $subtotal += $lineTotal;
     $items[] = [
         'productId' => $productId,
-        'title' => $product['title'] ?? 'Product',
-        'category' => $product['category'] ?? '',
-        'thumbnailUrl' => $product['thumbnailUrl'] ?? '',
+        'title' => $product['title'],
+        'category' => $product['category'],
+        'thumbnailUrl' => $product['thumbnailUrl'],
         'price' => $price,
         'quantity' => $quantity,
         'lineTotal' => $lineTotal,
@@ -77,7 +66,7 @@ $couponId = '';
 $appliedCode = '';
 
 if ($couponCode !== '') {
-    $coupon = bxm_validate_coupon($couponCode, $subtotal, $idToken);
+    $coupon = bxm_validate_coupon($couponCode, $subtotal);
     if (empty($coupon['ok'])) {
         bxm_json(['ok' => false, 'error' => $coupon['error'] ?? 'Invalid coupon.'], 400);
     }
@@ -88,67 +77,62 @@ if ($couponCode !== '') {
 
 $amount = round(max(0, $subtotal - $couponDiscount), 2);
 
-$settingsResult = bxm_rtdb_get('settings/payment', $idToken);
-$paymentSettings = (!empty($settingsResult['ok']) && is_array($settingsResult['data'])) ? $settingsResult['data'] : [];
+$paymentSettings = bxm_get_setting('payment', []);
+$orderId = bxm_generate_order_id();
+$now = bxm_now_ms();
 
-$orderId = bxm_generate_order_id($idToken);
-$now = round(microtime(true) * 1000);
+$productTitle = count($items) > 1
+    ? ($items[0]['title'] . ' +' . (count($items) - 1) . ' more')
+    : $items[0]['title'];
 
-$order = [
-    'orderId' => $orderId,
-    'uid' => $uid,
-    'userEmail' => $verified['email'],
-    'items' => $items,
-    'productId' => $items[0]['productId'],
-    'productTitle' => count($items) > 1 ? ($items[0]['title'] . ' +' . (count($items) - 1) . ' more') : $items[0]['title'],
-    'productThumbnail' => $items[0]['thumbnailUrl'],
-    'subtotal' => $subtotal,
-    'couponCode' => $appliedCode,
-    'couponId' => $couponId,
-    'couponDiscount' => $couponDiscount,
-    'amount' => $amount,
-    'transactionId' => $transactionId,
-    'paymentScreenshotUrl' => $paymentScreenshotUrl,
-    'paymentSnapshot' => [
-        'upiId' => $paymentSettings['upiId'] ?? '',
-        'qrCodeUrl' => $paymentSettings['qrCodeUrl'] ?? '',
-        'paymentDisplayName' => $paymentSettings['paymentDisplayName'] ?? '',
-    ],
-    'status' => 'payment_submitted',
-    'rejectionReason' => '',
-    'createdAt' => $now,
-    'updatedAt' => $now,
-];
+$created = bxm_exec(
+    'INSERT INTO orders (order_id, uid, user_email, items, product_id, product_title, product_thumbnail, subtotal, coupon_code, coupon_id, coupon_discount, amount, transaction_id, payment_screenshot_url, payment_snapshot, delivery_details, status, rejection_reason, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+    [
+        $orderId,
+        $uid,
+        $user['email'],
+        bxm_json_encode_col($items),
+        $items[0]['productId'],
+        $productTitle,
+        $items[0]['thumbnailUrl'],
+        $subtotal,
+        $appliedCode,
+        $couponId,
+        $couponDiscount,
+        $amount,
+        $transactionId,
+        $paymentScreenshotUrl,
+        bxm_json_encode_col([
+            'upiId' => $paymentSettings['upiId'] ?? '',
+            'qrCodeUrl' => $paymentSettings['qrCodeUrl'] ?? '',
+            'paymentDisplayName' => $paymentSettings['paymentDisplayName'] ?? '',
+        ]),
+        bxm_json_encode_col([]),
+        'payment_submitted',
+        '',
+        $now,
+        $now,
+    ]
+);
 
-$write = bxm_rtdb_put('orders/' . $orderId, $order, $idToken);
-if (empty($write['ok'])) {
-    bxm_log('order_create_failed', ['orderId' => $orderId, 'uid' => $uid, 'status' => $write['status'] ?? 0]);
+if ($created === false) {
+    bxm_log('order_create_failed', ['orderId' => $orderId, 'uid' => $uid]);
     bxm_json(['ok' => false, 'error' => 'Could not create your order. Please try again.'], 502);
 }
 
 if ($couponId !== '') {
-    $couponRow = bxm_rtdb_get('coupons/' . $couponId, $idToken);
-    $usedCount = 0;
-    if (!empty($couponRow['ok']) && is_array($couponRow['data'])) {
-        $usedCount = (int) ($couponRow['data']['usedCount'] ?? 0);
-    }
-    $inc = bxm_rtdb_put('coupons/' . $couponId . '/usedCount', $usedCount + 1, $idToken);
-    if (empty($inc['ok'])) {
-        bxm_log('coupon_increment_failed', ['couponId' => $couponId, 'orderId' => $orderId]);
-    }
+    bxm_exec('UPDATE coupons SET used_count = used_count + 1 WHERE id = ?', [$couponId]);
 }
 
-bxm_rtdb_put('users/' . $uid . '/orders/' . $orderId, true, $idToken);
-bxm_rtdb_put('carts/' . $uid, null, $idToken);
+bxm_exec('DELETE FROM carts WHERE uid = ?', [$uid]);
 
-bxm_rtdb_post('notifications/' . $uid, [
+bxm_notify($uid, [
     'title' => 'Payment submitted',
-    'message' => 'We received your payment for ' . $order['productTitle'] . '. Your order is now pending verification.',
+    'message' => 'We received your payment for ' . $productTitle . '. Your order is now pending verification.',
     'type' => 'info',
     'link' => bxm_url('order-details.php?id=' . $orderId),
-    'read' => false,
-    'createdAt' => $now,
-], $idToken);
+]);
 
 bxm_json([
     'ok' => true,

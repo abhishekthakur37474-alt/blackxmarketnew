@@ -40,77 +40,27 @@ require_once __DIR__ . '/../includes/header.php';
 $inlineScript = <<<'HTML'
 <script>
 (function () {
-  function anyAdmin(users) {
-    if (!users) return false;
-    var keys = Object.keys(users);
-    for (var i = 0; i < keys.length; i++) {
-      var u = users[keys[i]] || {};
-      if (u.role === 'admin' && u.status !== 'banned') return true;
-    }
-    return false;
-  }
-
-  window.BXM.onAuth(function () {
-    if (!window.BXM.firebaseReady) return;
-    window.BXM.db.ref('users').once('value').then(function (snap) {
-      if (!anyAdmin(snap.val())) {
-        window.location.href = window.BXM.url('admin/register.php');
-      }
-    }).catch(function () {});
-  });
-
   document.getElementById('adminLoginForm').addEventListener('submit', function (e) {
     e.preventDefault();
     var email = document.getElementById('adminEmail').value.trim();
     var password = document.getElementById('adminPassword').value;
     var btn = document.getElementById('adminLoginBtn');
     if (!email || !password) { window.BXM.toast('Please fill in all fields', 'warning'); return; }
-    if (!window.BXM.firebaseReady) { window.BXM.toast('Firebase is not configured yet', 'danger'); return; }
     btn.disabled = true;
-    window.BXM.auth.signInWithEmailAndPassword(email, password).then(function (cred) {
-      var user = cred.user;
-      return window.BXM.db.ref('users/' + user.uid).once('value').then(function (snap) {
-        var profile = snap.val() || {};
-        if (profile.role !== 'admin') {
-          return window.BXM.auth.signOut().then(function () {
+    window.BXM.apiFetch('auth.php', { method: 'POST', json: { action: 'login', email: email, password: password } })
+      .then(function (res) {
+        if (!res || !res.ok) throw new Error((res && res.error) || 'Login failed');
+        if (!res.user || res.user.role !== 'admin') {
+          return window.BXM.apiFetch('auth.php', { method: 'POST', json: { action: 'logout' } }).then(function () {
             throw new Error('This account is not an admin.');
           });
         }
-        return user.getIdToken();
+        window.BXM.toast('Welcome, Admin', 'success');
+        setTimeout(function () { window.location.replace(window.BXM.url('admin/index.php')); }, 400);
+      }).catch(function (err) {
+        btn.disabled = false;
+        window.BXM.toast(err.message || 'Login failed', 'danger');
       });
-    }).then(function (token) {
-      if (!token) throw new Error('Could not create admin session.');
-      return fetch(window.BXM.api('session.php'), {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': (window.BXM_APP && window.BXM_APP.csrf) || '' },
-        body: JSON.stringify({ idToken: token })
-      }).then(function (r) {
-        return r.json().then(function (data) {
-          return { status: r.status, data: data || {} };
-        }).catch(function () {
-          return { status: r.status, data: {} };
-        });
-      }).then(function (res) {
-        var data = res.data || {};
-        if (!data.ok || !data.user || data.user.role !== 'admin') {
-          return window.BXM.auth.signOut().then(function () {
-            throw new Error(data.error || 'Admin session could not be created.');
-          });
-        }
-        return data;
-      });
-    }).then(function () {
-      window.BXM.toast('Welcome, Admin', 'success');
-      window.location.replace(window.BXM.url('admin/index.php'));
-    }).catch(function (err) {
-      btn.disabled = false;
-      var msg = err.message || 'Login failed';
-      if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
-        msg = 'Invalid admin email or password';
-      }
-      window.BXM.toast(msg, 'danger');
-    });
   });
 })();
 </script>

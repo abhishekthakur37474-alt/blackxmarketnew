@@ -4,6 +4,12 @@ $pageTitle = 'Payment';
 $pageDescription = 'Complete payment and submit verification details.';
 $noIndex = true;
 require_once __DIR__ . '/includes/header.php';
+
+$paymentProducts = [];
+foreach (bxm_products() as $paymentProduct) {
+    $paymentProducts[$paymentProduct['id']] = $paymentProduct;
+}
+$paymentSettings = bxm_get_setting('payment', []);
 ?>
 <div class="container" id="bxmConfigNotice"></div>
 
@@ -58,12 +64,15 @@ require_once __DIR__ . '/includes/header.php';
   </div>
 </section>
 <?php
-$inlineScript = <<<'HTML'
+$encodedPaymentProducts = json_encode($paymentProducts, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$encodedPaymentSettings = json_encode($paymentSettings, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$inlineScript = <<<HTML
 <script>
 (function () {
-  var products = {};
+  var products = {$encodedPaymentProducts} || {};
+  var paymentSettings = {$encodedPaymentSettings} || {};
   var cartReady = false;
-  var productsReady = false;
+  var productsReady = true;
   var appliedCoupon = '';
   var appliedDiscount = 0;
   var subtotal = 0;
@@ -110,32 +119,30 @@ $inlineScript = <<<'HTML'
   }
 
   function loadPaymentInfo() {
-    window.BXM.db.ref('settings/payment').once('value').then(function (snap) {
-      var s = snap.val() || {};
-      var host = document.getElementById('paymentInfo');
-      if (s.active === false || (!s.qrCodeUrl && !s.upiId)) {
-        host.innerHTML = '<p class="text-secondary mb-0">Payment information is currently unavailable. Please contact support.</p>';
-        return;
-      }
-      var html = '';
-      html += '<div class="mb-2"><span class="text-secondary">Amount Payable:</span> <span class="fw-bold" id="payableAmount">₹0.00</span></div>';
-      if (s.qrCodeUrl) {
-        html += '<div class="text-center mb-3"><div class="bxm-qr-box"><img src="' + window.BXM.escapeHtml(s.qrCodeUrl) + '" alt="Payment QR"></div></div>';
-      }
-      if (s.upiId) {
-        html += '<div class="mb-3"><label class="form-label">UPI ID</label><div class="input-group">' +
-          '<input type="text" class="form-control" value="' + window.BXM.escapeHtml(s.upiId) + '" readonly>' +
-          '<button class="bxm-btn bxm-btn-outline" type="button" data-bxm-copy="' + window.BXM.escapeHtml(s.upiId) + '">Copy</button></div></div>';
-      }
-      if (s.paymentDisplayName) {
-        html += '<p class="mb-2 small text-secondary">Pay to: <b class="text-white">' + window.BXM.escapeHtml(s.paymentDisplayName) + '</b></p>';
-      }
-      if (s.instructions) {
-        html += '<div class="bxm-instruction-box">' + window.BXM.escapeHtml(s.instructions) + '</div>';
-      }
-      host.innerHTML = html;
-      updatePayable();
-    });
+    var s = paymentSettings || {};
+    var host = document.getElementById('paymentInfo');
+    if (s.active === false || (!s.qrCodeUrl && !s.upiId)) {
+      host.innerHTML = '<p class="text-secondary mb-0">Payment information is currently unavailable. Please contact support.</p>';
+      return;
+    }
+    var html = '';
+    html += '<div class="mb-2"><span class="text-secondary">Amount Payable:</span> <span class="fw-bold" id="payableAmount">₹0.00</span></div>';
+    if (s.qrCodeUrl) {
+      html += '<div class="text-center mb-3"><div class="bxm-qr-box"><img src="' + window.BXM.escapeHtml(s.qrCodeUrl) + '" alt="Payment QR"></div></div>';
+    }
+    if (s.upiId) {
+      html += '<div class="mb-3"><label class="form-label">UPI ID</label><div class="input-group">' +
+        '<input type="text" class="form-control" value="' + window.BXM.escapeHtml(s.upiId) + '" readonly>' +
+        '<button class="bxm-btn bxm-btn-outline" type="button" data-bxm-copy="' + window.BXM.escapeHtml(s.upiId) + '">Copy</button></div></div>';
+    }
+    if (s.paymentDisplayName) {
+      html += '<p class="mb-2 small text-secondary">Pay to: <b class="text-white">' + window.BXM.escapeHtml(s.paymentDisplayName) + '</b></p>';
+    }
+    if (s.instructions) {
+      html += '<div class="bxm-instruction-box">' + window.BXM.escapeHtml(s.instructions) + '</div>';
+    }
+    host.innerHTML = html;
+    updatePayable();
   }
 
   function updatePayable() {
@@ -221,16 +228,9 @@ $inlineScript = <<<'HTML'
     render();
   });
 
-  window.BXM.onAuth(function (user) {
-    if (!window.BXM.firebaseReady || !user) return;
-    if (window.BXM.state.cart && Object.keys(window.BXM.state.cart).length) cartReady = true;
-    window.BXM.db.ref('products').once('value').then(function (snap) {
-      snap.forEach(function (c) { products[c.key] = c.val(); });
-      productsReady = true;
-      render();
-      loadPaymentInfo();
-    });
-  });
+  if (window.BXM.state.cart && Object.keys(window.BXM.state.cart).length) cartReady = true;
+  loadPaymentInfo();
+  render();
 })();
 </script>
 HTML;
