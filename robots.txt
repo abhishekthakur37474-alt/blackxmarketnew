@@ -1,0 +1,13 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /api/
+Disallow: /auth/
+Disallow: /includes/
+Disallow: /firebase/
+Disallow: /payment.php
+Disallow: /orders.php
+Disallow: /order-details.php
+Disallow: /profile.php
+Disallow: /wishlist.php
+Disallow: /notifications.php
